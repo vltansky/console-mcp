@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Console MCP</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Console MCP</h1>
+        <div class="status">
+          <span class="status-indicator" id="status-indicator">●</span>
+          <span class="status-text" id="status-text">Connecting...</span>
+        </div>
+      </header>
+
+      <section class="controls">
+        <button id="toggle-btn" class="btn btn-primary">
+          <span id="toggle-text">Disable</span>
+        </button>
+        <button id="clear-btn" class="btn btn-secondary">Clear Logs</button>
+      </section>
+
+      <section class="stats">
+        <div class="stat-item">
+          <span class="stat-label">Total Logs:</span>
+          <span class="stat-value" id="total-logs">0</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Active Tabs:</span>
+          <span class="stat-value" id="active-tabs">0</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Queued:</span>
+          <span class="stat-value" id="queued-logs">0</span>
+        </div>
+      </section>
+
+      <section class="tabs-section">
+        <h2>Active Tabs</h2>
+        <div id="tabs-list" class="tabs-list">
+          <p class="empty-state">No active tabs</p>
+        </div>
+      </section>
+
+      <section class="settings">
+        <h2>Settings</h2>
+        <label class="checkbox-label">
+          <input type="checkbox" id="sanitize-checkbox" />
+          <span>Sanitize sensitive data</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="capture-errors-checkbox" checked />
+          <span>Capture unhandled errors</span>
+        </label>
+      </section>
+
+      <footer>
+        <p class="version">v0.1.0</p>
+      </footer>
+    </div>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

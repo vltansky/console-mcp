@@ -1,0 +1,19 @@
+{
+  "name": "@console-mcp/extension",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser extension for console log capture",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "package": "npm run build && node scripts/package.js"
+  },
+  "dependencies": {
+    "@console-mcp/shared": "*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.277",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

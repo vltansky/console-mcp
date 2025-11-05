@@ -1,0 +1,37 @@
+{
+  "name": "console-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server for capturing and querying browser console logs",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "vitest",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "dev:server": "npm run dev -w @console-mcp/server",
+    "dev:extension": "npm run dev -w @console-mcp/extension"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "console",
+    "logging",
+    "browser",
+    "debugging",
+    "chrome-extension"
+  ],
+  "author": "",
+  "license": "MIT"
+}
