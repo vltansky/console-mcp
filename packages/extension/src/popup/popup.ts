@@ -6,7 +6,6 @@ const toggleText = document.getElementById('toggle-text') as HTMLElement;
 const clearBtn = document.getElementById('clear-btn') as HTMLButtonElement;
 const totalLogsEl = document.getElementById('total-logs') as HTMLElement;
 const activeTabsEl = document.getElementById('active-tabs') as HTMLElement;
-const queuedLogsEl = document.getElementById('queued-logs') as HTMLElement;
 const tabsList = document.getElementById('tabs-list') as HTMLElement;
 const sanitizeCheckbox = document.getElementById('sanitize-checkbox') as HTMLInputElement;
 const captureErrorsCheckbox = document.getElementById(
@@ -42,8 +41,6 @@ async function updateStats(): Promise<void> {
       toggleBtn.classList.add('disabled');
       toggleText.textContent = 'Enable';
     }
-
-    queuedLogsEl.textContent = response.queueLength.toString();
 
     if (response.connected) {
       updateStatus('connected');
