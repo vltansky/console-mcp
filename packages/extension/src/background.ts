@@ -1,13 +1,12 @@
 import type { LogMessage, TabInfo } from '@console-mcp/shared';
 import { WebSocketClient } from './lib/websocket-client';
 
-// Configuration
-const WS_URL = 'ws://localhost:3333';
+// Discovery configuration
+const DISCOVERY_PORT = 3332;
+const FALLBACK_PORTS = [3333, 3334, 3335];
 
-// Initialize WebSocket client
-const wsClient = new WebSocketClient({
-  url: WS_URL,
-});
+// Initialize WebSocket client (assigned during initialize)
+let wsClient: WebSocketClient;
 
 // Track tab information
 const tabs = new Map<number, TabInfo>();
@@ -23,6 +22,70 @@ const STORAGE_KEYS = {
 // Extension state
 let isEnabled = true;
 
+async function tryHttpDiscovery(): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1000);
+    const response = await fetch(`http://localhost:${DISCOVERY_PORT}/discover`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (response.ok) {
+      const { wsUrl } = (await response.json()) as { wsUrl: string };
+      console.log(`[Background] Discovered server via HTTP: ${wsUrl}`);
+      return wsUrl;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function testPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const ws = new WebSocket(`ws://localhost:${port}`);
+      const timer = setTimeout(() => {
+        try {
+          ws.close();
+        } catch {}
+        resolve(false);
+      }, 500);
+      ws.onopen = () => {
+        clearTimeout(timer);
+        ws.close();
+        resolve(true);
+      };
+      ws.onerror = () => {
+        clearTimeout(timer);
+        resolve(false);
+      };
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+async function discoverServerUrl(): Promise<string> {
+  // 1) HTTP discovery
+  const httpUrl = await tryHttpDiscovery();
+  if (httpUrl) return httpUrl;
+
+  // 2) Port scan fallback
+  for (const port of FALLBACK_PORTS) {
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await testPort(port);
+    if (ok) {
+      const url = `ws://localhost:${port}`;
+      console.log(`[Background] Discovered server via port scan: ${url}`);
+      return url;
+    }
+  }
+
+  // 3) Default fallback
+  return 'ws://localhost:3333';
+}
+
 // Initialize settings and connect immediately
 async function initialize() {
   console.log('[Background] Initializing...');
@@ -35,6 +98,10 @@ async function initialize() {
   ]);
 
   isEnabled = settings[STORAGE_KEYS.ENABLED] !== false;
+
+  // Discover server URL and initialize client
+  const wsUrl = await discoverServerUrl();
+  wsClient = new WebSocketClient({ url: wsUrl });
 
   // Connect to WebSocket server
   if (isEnabled) {
@@ -159,21 +226,27 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 // WebSocket status updates
-wsClient.onStatusChange((status) => {
-  console.log(`[Background] WebSocket status: ${status}`);
+function wireStatusHandler(): void {
+  if (!wsClient) return;
+  wsClient.onStatusChange((status) => {
+    console.log(`[Background] WebSocket status: ${status}`);
 
-  // Update badge
-  if (status === 'connected') {
-    chrome.action.setBadgeText({ text: '' });
-    chrome.action.setBadgeBackgroundColor({ color: '#10B981' });
-  } else if (status === 'reconnecting') {
-    chrome.action.setBadgeText({ text: '...' });
-    chrome.action.setBadgeBackgroundColor({ color: '#F59E0B' });
-  } else {
-    chrome.action.setBadgeText({ text: '!' });
-    chrome.action.setBadgeBackgroundColor({ color: '#EF4444' });
-  }
-});
+    // Update badge
+    if (status === 'connected') {
+      chrome.action.setBadgeText({ text: '' });
+      chrome.action.setBadgeBackgroundColor({ color: '#10B981' });
+    } else if (status === 'reconnecting') {
+      chrome.action.setBadgeText({ text: '...' });
+      chrome.action.setBadgeBackgroundColor({ color: '#F59E0B' });
+    } else {
+      chrome.action.setBadgeText({ text: '!' });
+      chrome.action.setBadgeBackgroundColor({ color: '#EF4444' });
+    }
+  });
+}
+
+// Wire handler after initialization sets wsClient
+wireStatusHandler();
 
 // Toggle enabled state
 async function toggleEnabled(): Promise<boolean> {
@@ -181,9 +254,9 @@ async function toggleEnabled(): Promise<boolean> {
   await chrome.storage.local.set({ [STORAGE_KEYS.ENABLED]: isEnabled });
 
   if (isEnabled) {
-    wsClient.connect();
+    wsClient?.connect();
   } else {
-    wsClient.disconnect();
+    wsClient?.disconnect();
   }
 
   return isEnabled;
