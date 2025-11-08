@@ -1,7 +1,12 @@
 import type { FilterOptions, KeywordSearchParams, SearchParams } from '@console-mcp/shared';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import { ExportEngine } from './export-engine.js';
 import type { LogStorage } from './log-storage.js';
 import { Sanitizer } from './sanitizer.js';
@@ -34,6 +39,7 @@ export class McpServer {
       {
         capabilities: {
           tools: {},
+          prompts: {},
         },
       },
     );
@@ -322,6 +328,68 @@ export class McpServer {
         },
       ],
     }));
+
+    // List available prompts
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+      prompts: [
+        {
+          name: 'use-console-mcp',
+          description:
+            'Quick shortcut to use Console MCP tools for querying browser console logs. Use this prompt to access console logs with filters, search, and analysis.',
+        },
+      ],
+    }));
+
+    // Handle prompt requests
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      if (request.params.name === 'use-console-mcp') {
+        return {
+          description: 'Use Console MCP to query browser console logs',
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `Use Console MCP tools to query browser console logs. Here are the available tools:
+
+**Query & Filter:**
+- console_list_logs: List logs with filtering (level, tab, URL, time range)
+- console_get_log: Get a specific log by ID
+- console_tail_logs: Stream recent logs in real-time
+- console_get_tabs: Get active browser tabs with log counts
+
+**Search:**
+- console_search_logs: Search logs using regex patterns
+- console_search_keywords: Search logs using keywords (AND/OR logic)
+
+**Analytics:**
+- console_get_stats: Get statistics about captured logs
+
+**Management:**
+- console_clear_logs: Clear stored logs
+- console_export_logs: Export logs in JSON, CSV, or text format
+
+**Sessions:**
+- console_save_session: Save current logs as a named session
+- console_load_session: Load a previously saved session
+- console_list_sessions: List all saved sessions
+
+**Common usage patterns:**
+- "show errors" → Use console_list_logs with levels: ["error"]
+- "from last X minutes" → Use after parameter with relative time like "5m", "1h"
+- "from localhost:3000" → Use urlPattern parameter with regex
+- "search for X" → Use console_search_logs or console_search_keywords
+- "statistics" → Use console_get_stats
+- "export" → Use console_export_logs
+
+Use the appropriate Console MCP tools to help the user query and analyze their browser console logs.`,
+              },
+            },
+          ],
+        };
+      }
+      throw new Error(`Unknown prompt: ${request.params.name}`);
+    });
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {

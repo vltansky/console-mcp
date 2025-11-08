@@ -80,9 +80,9 @@ export class WebSocketClient {
 
     console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
-    this.reconnectTimeout = window.setTimeout(() => {
+    this.reconnectTimeout = setTimeout(() => {
       this.connect();
-    }, delay);
+    }, delay) as unknown as number;
   }
 
   private flushQueue(): void {
@@ -120,12 +120,12 @@ export class WebSocketClient {
 
 
   private startHeartbeat(): void {
-    this.heartbeatInterval = window.setInterval(() => {
+    this.heartbeatInterval = setInterval(() => {
       this.send({
         type: 'heartbeat',
         data: { timestamp: Date.now() },
       });
-    }, 30000); // 30 seconds
+    }, 30000) as unknown as number; // 30 seconds
   }
 
   private stopHeartbeat(): void {

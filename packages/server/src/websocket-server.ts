@@ -37,8 +37,15 @@ export class ConsoleWebSocketServer {
     });
 
     this.wss.on('connection', this.handleConnection);
-    this.wss.on('error', (_error) => {
-      // Silently handle errors to avoid interfering with MCP stdio
+    this.wss.on('error', (error) => {
+      // Log to stderr to avoid interfering with MCP stdio
+      process.stderr.write(`[WebSocket Server] Error: ${error.message}\n`);
+    });
+
+    this.wss.on('listening', () => {
+      process.stderr.write(
+        `[WebSocket Server] Listening on ws://${this.config.host}:${this.config.port}\n`,
+      );
     });
 
     this.startHeartbeat();
@@ -51,14 +58,19 @@ export class ConsoleWebSocketServer {
       lastHeartbeat: Date.now(),
     };
     this.clients.set(ws, clientInfo);
+    process.stderr.write(`[WebSocket Server] New client connected (total: ${this.clients.size})\n`);
 
     ws.on('message', (data: Buffer) => {
       try {
         const rawMessage = JSON.parse(data.toString());
         const message = ExtensionMessageSchema.parse(rawMessage);
         this.handleMessage(message, clientInfo);
-      } catch (_error) {
-        // Silently handle invalid messages
+      } catch (error) {
+        // Log validation errors to help debug
+        if (error instanceof Error) {
+          process.stderr.write(`[WebSocket Server] Message validation error: ${error.message}\n`);
+          process.stderr.write(`[WebSocket Server] Raw message: ${data.toString().substring(0, 200)}\n`);
+        }
       }
     });
 
@@ -68,6 +80,7 @@ export class ConsoleWebSocketServer {
     });
 
     ws.on('close', () => {
+      process.stderr.write(`[WebSocket Server] Client disconnected (remaining: ${this.clients.size - 1})\n`);
       this.clients.delete(ws);
     });
 
@@ -80,6 +93,7 @@ export class ConsoleWebSocketServer {
     switch (message.type) {
       case 'log':
         this.storage.add(message.data);
+        process.stderr.write(`[WebSocket Server] Received log: ${message.data.level} from tab ${message.data.tabId}\n`);
         break;
 
       case 'tab_opened':
