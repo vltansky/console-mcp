@@ -1,5 +1,5 @@
 {
-  "name": "console-mcp",
+  "name": "console-logs-mcp",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,8 +10,8 @@
     "test": "vitest",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "dev:server": "npm run dev -w @console-mcp/server",
-    "dev:extension": "npm run dev -w @console-mcp/extension"
+    "dev:server": "npm run dev -w console-logs-mcp",
+    "dev:extension": "npm run dev -w console-logs-mcp-extension"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

@@ -1,5 +1,5 @@
 {
-  "name": "@console-mcp/extension",
+  "name": "console-logs-mcp-extension",
   "version": "0.1.0",
   "type": "module",
   "description": "Browser extension for console log capture",
@@ -9,7 +9,7 @@
     "package": "npm run build && node scripts/package.js"
   },
   "dependencies": {
-    "@console-mcp/shared": "*"
+    "console-logs-mcp-shared": "*"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.277",
