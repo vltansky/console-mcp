@@ -5,8 +5,6 @@ export type ProjectSkill = {
   id: string;
   title: string;
   description: string;
-  tags: string[];
-  flow: string[];
   body: string;
   sourcePath: string;
 };
@@ -48,19 +46,10 @@ export async function loadProjectSkills(
         const title = metadata.title || toTitleCase(slug);
         const description =
           metadata.description || firstParagraph(body) || 'Project-specific guidance.';
-        const tags = Array.isArray(metadata.tags)
-          ? metadata.tags
-          : parseList(metadata.tags as string | undefined);
-        const flow = Array.isArray(metadata.flow)
-          ? metadata.flow
-          : parseList(metadata.flow as string | undefined);
-
         discoveredSkills.push({
           id: metadata.slug ? slugify(String(metadata.slug)) : slug,
           title,
           description,
-          tags,
-          flow,
           body: body.trim(),
           sourcePath: fullPath,
         });
@@ -129,14 +118,6 @@ function extractFrontMatter(content: string): {
   }
 
   return { metadata, body };
-}
-
-function parseList(value: string | undefined): string[] {
-  if (!value) return [];
-  return value
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean);
 }
 
 function stripQuotes(value: string): string {

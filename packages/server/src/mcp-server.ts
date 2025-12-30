@@ -361,11 +361,6 @@ export class McpServer {
                 type: 'string',
                 description: 'Absolute path to the project root (where `.console-bridge/` lives).',
               },
-              tags: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'Filter skills by tag (case-insensitive AND logic)',
-              },
             },
             required: ['projectPath'],
           },
@@ -408,6 +403,11 @@ export class McpServer {
           description:
             'Quick shortcut to use Console MCP tools for querying browser console logs. Use this prompt to access console logs with filters, search, and analysis.',
         },
+        {
+          name: 'create-browser-skill',
+          description:
+            'Create a browser skill (project-specific debugging playbook) that teaches the AI assistant how to debug this specific project using console-bridge MCP tools.',
+        },
       ],
     }));
 
@@ -446,8 +446,8 @@ export class McpServer {
 - Summarize recent activity (counts, error patterns) over the last 1/5/15 minutes, optionally scoped to a tab.
 
 **console_skills_list / console_skills_load**
-- console_skills_list surfaces project-specific skills defined in .console-bridge/*.md. Filter by tags to only see flows relevant to the current request.
-- console_skills_load fetches the markdown body + metadata for a specific skill (use the slug from the list response).
+- console_skills_list surfaces project-specific skills defined in .console-bridge/*.md.
+- console_skills_load fetches the markdown body + metadata for a specific skill (use the id from the list response).
 
 **Maintenance**
 - Use the extension popup controls to clear logs or download exports directly (outside MCP tools).
@@ -475,6 +475,76 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
           ],
         };
       }
+
+      if (request.params.name === 'create-browser-skill') {
+        return {
+          description: 'Create a browser skill for project-specific debugging',
+          messages: [
+            {
+              role: 'user',
+              content: {
+                type: 'text',
+                text: `Create a browser skill (project-specific debugging playbook) that teaches the AI assistant how to debug this specific project using console-bridge MCP tools.
+
+**What are browser skills?**
+Markdown files stored in \`.console-bridge/\` that provide project-specific guidance for debugging workflows. They're automatically discovered and exposed via \`console_skills_list\` and \`console_skills_load\` MCP tools.
+
+**File structure:**
+- Directory: \`.console-bridge/\` (project root)
+- Filename: \`{skill-name}.md\` (kebab-case)
+- Format: Markdown with YAML front-matter
+
+**Template:**
+\`\`\`markdown
+---
+title: Skill Title
+description: Brief description of what this skill teaches
+---
+
+# Skill Title
+
+Detailed markdown content explaining:
+- When to use this skill
+- Step-by-step workflow
+- Common patterns to look for
+- Project-specific hints (ports, URLs, feature flags)
+- Troubleshooting tips
+\`\`\`
+
+**Front-matter fields:**
+- \`title\` (required): Human-readable skill name
+- \`description\` (required): Brief summary for skill listings
+
+**Available MCP tools for skills:**
+| Tool | Description |
+|------|-------------|
+| \`console_tabs\` | List/suggest browser tabs |
+| \`console_logs\` | Query logs (list/get/tail) |
+| \`console_search\` | Search logs (regex/keywords) |
+| \`console_browser_execute\` | Execute JavaScript in page |
+| \`console_browser_query\` | Query DOM elements |
+| \`console_snapshot\` | Get log statistics |
+
+**Best practices:**
+- Be specific: Include project-specific details (ports, URLs, feature flags)
+- Provide context: Explain WHY, not just WHAT
+- Keep focused: One skill per debugging scenario
+
+**Workflow:**
+1. Identify debugging scenario that needs a playbook
+2. Create \`.console-bridge/{skill-name}.md\`
+3. Write front-matter (title, description)
+4. Write body content in markdown
+5. Verify with \`console_skills_list\` (skill should appear)
+6. Test with \`console_skills_load(slug: "{skill-name}")\`
+
+Now, help me create a browser skill for this project.`,
+              },
+            },
+          ],
+        };
+      }
+
       throw new Error(`Unknown prompt: ${request.params.name}`);
     });
 
@@ -778,7 +848,7 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
     };
   }
 
-  private async handleSkillsListTool(args: { tags?: string[]; projectPath: string }) {
+  private async handleSkillsListTool(args: { projectPath: string }) {
     const { skills, directory } = await loadProjectSkills({ directory: args.projectPath });
     if (!skills.length) {
       return this.buildSkillsMessage({
@@ -789,19 +859,10 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
       });
     }
 
-    const normalizedTags = args?.tags?.map((tag) => tag.toLowerCase()) ?? [];
-    const filteredSkills =
-      normalizedTags.length === 0
-        ? skills
-        : skills.filter((skill) => {
-            const skillTags = skill.tags.map((tag) => tag.toLowerCase());
-            return normalizedTags.every((tag) => skillTags.includes(tag));
-          });
-
     return this.buildSkillsMessage({
-      total: filteredSkills.length,
+      total: skills.length,
       directory,
-      skills: filteredSkills.map((skill) => this.serializeSkill(skill)),
+      skills: skills.map((skill) => this.serializeSkill(skill)),
     });
   }
 
@@ -961,8 +1022,6 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
       id: skill.id,
       title: skill.title,
       description: skill.description,
-      tags: skill.tags,
-      flow: skill.flow,
       sourcePath: skill.sourcePath,
       body: options?.includeBody ? skill.body : undefined,
     };

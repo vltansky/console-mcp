@@ -36,12 +36,6 @@ Browser skills are markdown files stored in `.console-bridge/` that provide proj
 ---
 title: Skill Title
 description: Brief description of what this skill teaches
-tags:
-  - tag1
-  - tag2
-flow:
-  - console_tabs (action: "suggest", urlPatterns: ["localhost:3000"])
-  - console_logs (levels: ["error"], tabId: <tabId>)
 ---
 
 # Skill Title
@@ -62,8 +56,6 @@ Detailed markdown content explaining:
 </required>
 
 <optional>
-- `tags` (array): Categories for filtering (e.g., `["checkout", "auth"]`)
-- `flow` (array): Recommended MCP tool sequence with example parameters
 - `slug` (string): Custom identifier (auto-generated from filename if omitted)
 </optional>
 </front_matter_fields>
@@ -74,14 +66,6 @@ Detailed markdown content explaining:
 ---
 title: Checkout Flow Smoke Test
 description: How to target checkout tabs + common log filters
-tags:
-  - checkout
-  - tabs
-  - ecommerce
-flow:
-  - console_tabs (action: "suggest", urlPatterns: ["localhost:4000/checkout"])
-  - console_logs (levels: ["error"], tabId: <tabId>)
-  - console_browser_execute (code: "window.checkout.debug()")
 ---
 
 # Checkout Flow Smoke Test
@@ -102,13 +86,6 @@ Use `console_browser_execute` to toggle checkout debug mode: `window.checkout.de
 ---
 title: Auth Flow Debugging
 description: Debug authentication errors and token refresh issues
-tags:
-  - auth
-  - security
-flow:
-  - console_tabs (action: "suggest", urlPatterns: ["localhost:3000/login"])
-  - console_search (action: "keywords", keywords: ["auth", "token", "401"], tabId: <tabId>)
-  - console_logs (levels: ["error", "warn"], tabId: <tabId>, after: "10m")
 ---
 
 # Auth Flow Debugging
@@ -128,11 +105,6 @@ The auth service runs on port 3000. Use `sessionScope: "current"` to focus on lo
 ---
 title: Multi-Project Tab Selection
 description: Help AI identify the correct tab when working on multiple projects
-tags:
-  - tabs
-  - workflow
-flow:
-  - console_tabs (action: "suggest", domains: ["localhost"], ports: [3000, 5173, 8080])
 ---
 
 # Multi-Project Tab Selection
@@ -154,8 +126,6 @@ Use `console_tabs` with `ports: [3000, 6006, 8080]` to filter local development 
 
 <best_practices>
 - **Be Specific**: Include project-specific details (ports, URLs, feature flags)
-- **Use Tags**: Tag skills for easy filtering (`console_skills_list(tags: ["checkout"])`)
-- **Document Flow**: Use `flow` metadata to show recommended tool sequence
 - **Provide Context**: Explain WHY, not just WHAT
 - **Include Examples**: Show concrete MCP tool calls with realistic parameters
 - **Keep Focused**: One skill per debugging scenario
@@ -164,7 +134,7 @@ Use `console_tabs` with `ports: [3000, 6006, 8080]` to filter local development 
 <workflow>
 1. Identify debugging scenario that needs a playbook
 2. Create `.console-bridge/{skill-name}.md`
-3. Write front-matter (title, description, tags, flow)
+3. Write front-matter (title, description)
 4. Write body content in markdown
 5. Verify with `console_skills_list` (skill should appear)
 6. Test with `console_skills_load(slug: "{skill-name}")`
