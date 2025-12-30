@@ -20,5 +20,7 @@
     "tailwindcss": "^3.4.19",
     "typescript": "^5.6.3",
     "vite": "^5.4.11"
-  }
+  },
+  "author": "Vlad Tansky",
+  "license": "MIT"
 }
