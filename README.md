@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="packages/extension/icon.png" alt="console-bridge icon" width="128" height="128">
+
 # console-bridge
 
 **Real-time Browser Console Logs for AI Assistants**
