@@ -1,10 +1,8 @@
 {
   "mcpServers": {
-    "console-bridge-dev": {
-      "command": "node",
-      "args": [
-        "./packages/server/dist/index.js"
-      ]
+    "console-bridge-test": {
+      "command": "npx",
+      "args": ["-y", "console-bridge-mcp@latest"]
     }
   }
 }

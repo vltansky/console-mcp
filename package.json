@@ -10,7 +10,7 @@
     "test": "vitest",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "dev:server": "npm run dev -w console-bridge",
+    "dev:server": "npm run dev -w console-bridge-mcp",
     "dev:extension": "npm run dev -w console-bridge-extension"
   },
   "devDependencies": {

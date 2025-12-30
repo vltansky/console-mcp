@@ -192,7 +192,7 @@ console-bridge requires two components: the MCP server and the browser extension
 #### Step 1: Install the MCP Server
 
 ```bash
-npx console-bridge@latest
+npx console-bridge-mcp@latest
 ```
 
 #### Step 2: Install Browser Extension
@@ -246,7 +246,7 @@ If you see console-bridge tools being used, you're all set! 🎉
 
 #### Manual Install
 
-Go to `Cursor Settings` → `MCP` → `Add new MCP Server`. Name to your liking, use `command` type with the command `npx -y console-bridge@latest`. You can also verify config or add command arguments via clicking `Edit`.
+Go to `Cursor Settings` → `MCP` → `Add new MCP Server`. Name to your liking, use `command` type with the command `npx -y console-bridge-mcp@latest`. You can also verify config or add command arguments via clicking `Edit`.
 
 #### Project-Specific Configuration
 
@@ -257,7 +257,7 @@ Create `.cursor/mcp.json` in your project root:
   "mcpServers": {
     "console-bridge": {
       "command": "npx",
-      "args": ["-y", "console-bridge@latest"]
+      "args": ["-y", "console-bridge-mcp@latest"]
     }
   }
 }
@@ -271,7 +271,7 @@ Create `.cursor/mcp.json` in your project root:
 Use the Claude Code CLI:
 
 ```bash
-claude mcp add console-bridge npx -y console-bridge@latest
+claude mcp add console-bridge npx -y console-bridge-mcp@latest
 ```
 
 Or manually edit `~/.claude/config.json`:
@@ -281,7 +281,7 @@ Or manually edit `~/.claude/config.json`:
   "mcpServers": {
     "console-bridge": {
       "command": "npx",
-      "args": ["-y", "console-bridge@latest"]
+      "args": ["-y", "console-bridge-mcp@latest"]
     }
   }
 }
@@ -302,7 +302,7 @@ Follow the MCP install [guide](https://code.visualstudio.com/docs/copilot/chat/m
 
 ```bash
 # For VS Code
-code --add-mcp '{"name":"console-bridge","command":"npx","args":["-y","console-bridge@latest"]}'
+code --add-mcp '{"name":"console-bridge","command":"npx","args":["-y","console-bridge-mcp@latest"]}'
 ```
 
 Or add to `settings.json`:
@@ -312,7 +312,7 @@ Or add to `settings.json`:
   "mcp.servers": {
     "console-bridge": {
       "command": "npx",
-      "args": ["-y", "console-bridge@latest"]
+      "args": ["-y", "console-bridge-mcp@latest"]
     }
   }
 }
@@ -330,7 +330,7 @@ Add to your Windsurf MCP configuration:
   "mcpServers": {
     "console-bridge": {
       "command": "npx",
-      "args": ["-y", "console-bridge@latest"]
+      "args": ["-y", "console-bridge-mcp@latest"]
     }
   }
 }
@@ -348,7 +348,7 @@ Follow the [MCP install guide](https://modelcontextprotocol.io/quickstart/user),
   "mcpServers": {
     "console-bridge": {
       "command": "npx",
-      "args": ["-y", "console-bridge@latest"]
+      "args": ["-y", "console-bridge-mcp@latest"]
     }
   }
 }
@@ -560,7 +560,7 @@ CONSOLE_MCP_SKILLS_DIR=./.console-bridge  # Optional override for the project sk
 
 ```bash
 # Increase log storage and change port
-CONSOLE_MCP_PORT=8080 CONSOLE_MCP_MAX_LOGS=50000 npx console-bridge@latest
+CONSOLE_MCP_PORT=8080 CONSOLE_MCP_MAX_LOGS=50000 npx console-bridge-mcp@latest
 ```
 
 > Logs older than `CONSOLE_MCP_LOG_TTL_MINUTES` are automatically purged. Set the value to `0` or a negative number if you prefer unlimited retention.
@@ -588,7 +588,7 @@ console-bridge uses a three-component architecture for efficient real-time log c
 
 | Package | Description | Key Components |
 |---------|-------------|----------------|
-| **`console-bridge`** | MCP server exposing 7 focused tools + WebSocket server + HTTP discovery | MCP tools, WebSocket server (port 9847), HTTP discovery server (port 9846), log storage, filter/search engines, tab suggester, session manager |
+| **`console-bridge-mcp`** | MCP server exposing 7 focused tools + WebSocket server + HTTP discovery | MCP tools, WebSocket server (port 9847), HTTP discovery server (port 9846), log storage, filter/search engines, tab suggester, session manager |
 | **`console-bridge-extension`** | Chrome/Edge extension capturing console logs | Content script, console interceptor, WebSocket client, popup UI |
 | **`console-bridge-shared`** | Shared TypeScript types and Zod schemas | LogMessage, FilterOptions, SearchOptions, TabInfo types |
 
