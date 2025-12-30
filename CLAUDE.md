@@ -17,7 +17,7 @@ console-logs-mcp is an MCP (Model Context Protocol) server that captures browser
 The server follows a modular architecture with specialized engines:
 
 - **`index.ts`**: Entry point that initializes LogStorage, ConsoleWebSocketServer, and McpServer
-- **`mcp-server.ts`**: Core MCP server implementation exposing 12 tools for log querying
+- **`mcp-server.ts`**: Core MCP server implementation exposing six multi-action tools for log querying
 - **`websocket-server.ts`**: WebSocket server (port 9847) receiving log batches from extension
 - **`log-storage.ts`**: In-memory log storage with filtering and pagination
 - **`filter-engine.ts`**: Filters logs by level, tab, URL pattern, time range, session
@@ -132,7 +132,7 @@ All messages validated with Zod schemas at runtime.
 - `sessionId`: Filter by session
 
 ### MCP Tools
-All 12 MCP tools are defined in `mcp-server.ts`:
+All six multi-action MCP tools are defined in `mcp-server.ts`:
 - Tools accept JSON arguments validated against input schemas
 - Tools return text content (usually JSON stringified)
 - Error handling returns `isError: true` with error message

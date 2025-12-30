@@ -3,6 +3,7 @@ import type { ExtensionMessage, ServerMessage } from 'console-logs-mcp-shared';
 export interface WebSocketClientConfig {
   url: string;
   maxReconnectAttempts?: number;
+  urlResolver?: () => Promise<string>;
 }
 
 export class WebSocketClient {
@@ -15,11 +16,13 @@ export class WebSocketClient {
   private readonly config: Required<WebSocketClientConfig>;
   private onMessageCallback?: (message: ServerMessage) => void;
   private onStatusChangeCallback?: (status: 'connected' | 'disconnected' | 'reconnecting') => void;
+  private resolvedUrl: string | null = null;
 
   constructor(config: WebSocketClientConfig) {
     this.config = {
       url: config.url,
       maxReconnectAttempts: config.maxReconnectAttempts ?? Number.POSITIVE_INFINITY,
+      urlResolver: config.urlResolver,
     };
   }
 
@@ -32,40 +35,53 @@ export class WebSocketClient {
     console.log(`[WebSocket] Connecting to ${this.config.url}...`);
     this.updateStatus('reconnecting');
 
+    void this.openConnection();
+  }
+
+  private async openConnection(): Promise<void> {
     try {
-      this.ws = new WebSocket(this.config.url);
-
-      this.ws.onopen = () => {
-        console.log('[WebSocket] Connected');
-        this.reconnectAttempts = 0;
-        this.updateStatus('connected');
-        this.flushQueue();
-        this.startHeartbeat();
-      };
-
-      this.ws.onclose = (event) => {
-        console.log(`[WebSocket] Disconnected: ${event.code} ${event.reason}`);
-        this.updateStatus('disconnected');
-        this.stopHeartbeat();
-        this.scheduleReconnect();
-      };
-
-      this.ws.onerror = (error) => {
-        console.error('[WebSocket] Error:', error);
-      };
-
-      this.ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data) as ServerMessage;
-          this.handleMessage(message);
-        } catch (error) {
-          console.error('[WebSocket] Failed to parse message:', error);
-        }
-      };
+      const url = await this.resolveUrl();
+      console.log(`[WebSocket] Connecting to ${url}...`);
+      this.ws = new WebSocket(url);
     } catch (error) {
-      console.error('[WebSocket] Failed to create connection:', error);
+      console.error('[WebSocket] Failed to resolve server URL:', error);
       this.scheduleReconnect();
+      return;
     }
+
+    this.ws.onopen = () => {
+      console.log('[WebSocket] Connected');
+      this.reconnectAttempts = 0;
+      this.updateStatus('connected');
+      this.flushQueue();
+      this.startHeartbeat();
+    };
+
+    this.ws.onclose = (event) => {
+      console.log(`[WebSocket] Disconnected: ${event.code} ${event.reason}`);
+      this.invalidateResolvedUrl();
+      this.updateStatus('disconnected');
+      this.stopHeartbeat();
+      this.scheduleReconnect();
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('[WebSocket] Error:', error);
+    };
+
+    this.ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data) as ServerMessage;
+        this.handleMessage(message);
+      } catch (error) {
+        console.error('[WebSocket] Failed to parse message:', error);
+      }
+    };
+  }
+
+  setUrlResolver(resolver: () => Promise<string>): void {
+    this.config.urlResolver = resolver;
+    this.invalidateResolvedUrl();
   }
 
   private scheduleReconnect(): void {
@@ -83,6 +99,26 @@ export class WebSocketClient {
     this.reconnectTimeout = setTimeout(() => {
       this.connect();
     }, delay) as unknown as number;
+  }
+
+  private async resolveUrl(): Promise<string> {
+    if (this.resolvedUrl) {
+      return this.resolvedUrl;
+    }
+
+    if (this.config.urlResolver) {
+      this.resolvedUrl = await this.config.urlResolver();
+    } else {
+      this.resolvedUrl = this.config.url;
+    }
+
+    return this.resolvedUrl;
+  }
+
+  private invalidateResolvedUrl(): void {
+    if (this.config.urlResolver) {
+      this.resolvedUrl = null;
+    }
   }
 
   private flushQueue(): void {

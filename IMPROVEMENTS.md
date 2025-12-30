@@ -186,8 +186,8 @@ Create and manage shell sessions from MCP.
 ## Impact Summary
 
 ### Tool Count
-- **Before**: 13 MCP tools
-- **After**: 16 MCP tools (+3 browser automation)
+- **Before**: 16 individual MCP tools
+- **After**: 6 multi-action MCP tools (browser automation included)
 
 ### Key Improvements
 1. ✅ Named sessions with descriptions (easier organization)

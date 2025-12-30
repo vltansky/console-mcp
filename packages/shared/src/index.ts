@@ -4,4 +4,6 @@ export {
   BrowserCommandResponse,
   ServerMessage,
   ExtensionMessage,
+  CONSOLE_MCP_IDENTIFIER,
+  type DiscoveryPayload,
 } from './types.js';

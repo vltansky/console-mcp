@@ -1,6 +1,71 @@
 import type { LogMessage, ServerMessage, BrowserCommandResponse } from 'console-logs-mcp-shared';
 import { interceptConsole } from './lib/console-interceptor';
 
+interface ExecuteResultPayload {
+  result?: unknown;
+  error?: {
+    message: string;
+    stack?: string;
+    name?: string;
+  };
+}
+
+const EXECUTE_SOURCE = 'console-mcp-execute';
+const EXECUTE_TIMEOUT_MS = 30_000;
+const executeCallbacks = new Map<string, { resolve: (payload: ExecuteResultPayload) => void; timer: number }>();
+
+window.addEventListener('message', (event) => {
+  if (event.source !== window) return;
+  const data = event.data as { source?: string; kind?: string; requestId?: string; payload?: ExecuteResultPayload };
+  if (!data || data.source !== EXECUTE_SOURCE || data.kind !== 'execute_js_result' || !data.requestId) {
+    return;
+  }
+
+  const entry = executeCallbacks.get(data.requestId);
+  if (entry) {
+    clearTimeout(entry.timer);
+    executeCallbacks.delete(data.requestId);
+    entry.resolve(data.payload || {});
+  }
+});
+
+function injectExecuteScript(code: string, requestId: string): void {
+  const script = document.createElement('script');
+  const escapedCode = code.replace(/<\/script/gi, '<\\/script');
+  script.textContent = `
+    (async () => {
+      const respond = (payload) => {
+        window.postMessage({ source: '${EXECUTE_SOURCE}', kind: 'execute_js_result', requestId: ${JSON.stringify(requestId)}, payload }, '*');
+      };
+      try {
+        const result = await (async () => { ${escapedCode} })();
+        respond({ result });
+      } catch (error) {
+        respond({
+          error: error instanceof Error
+            ? { message: error.message, stack: error.stack, name: error.name }
+            : { message: String(error) },
+        });
+      }
+    })();
+  `;
+  (document.documentElement || document.head)?.appendChild(script);
+  script.remove();
+}
+
+function executeInPage(code: string, requestId: string): Promise<ExecuteResultPayload> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      executeCallbacks.delete(requestId);
+      resolve({ error: { message: 'Execution timed out', name: 'TimeoutError' } });
+    }, EXECUTE_TIMEOUT_MS) as unknown as number;
+
+    executeCallbacks.set(requestId, { resolve, timer });
+
+    injectExecuteScript(code, requestId);
+  });
+}
+
 // Install console interceptor
 interceptConsole((logData: LogMessage) => {
   // Send log to background script
@@ -38,14 +103,14 @@ async function handleCommand(message: ServerMessage): Promise<any> {
   switch (message.type) {
     case 'execute_js': {
       try {
-        // Execute code in page context
-        const result = eval(message.data.code);
+        const payload = await executeInPage(message.data.code, message.data.requestId);
 
         const response: BrowserCommandResponse = {
           type: 'execute_js_response',
           data: {
             requestId: message.data.requestId,
-            result,
+            result: payload.result,
+            error: payload.error?.message,
           },
         };
 

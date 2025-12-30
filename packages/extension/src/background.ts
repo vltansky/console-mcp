@@ -1,12 +1,20 @@
-import type { LogMessage, TabInfo } from 'console-logs-mcp-shared';
+import type { DiscoveryPayload, ExtensionMessage, LogMessage, TabInfo } from 'console-logs-mcp-shared';
+import { CONSOLE_MCP_IDENTIFIER } from 'console-logs-mcp-shared';
 import { WebSocketClient } from './lib/websocket-client';
 
 // Discovery configuration
 const DISCOVERY_PORT = 9846;
-const FALLBACK_PORTS = [9847, 9848, 9849];
+const DISCOVERY_PORT_RANGE = { start: 9800, end: 9900 };
+const DISCOVERY_TIMEOUT_MS = 600;
 
 // Initialize WebSocket client (assigned during initialize)
-let wsClient: WebSocketClient;
+let wsClient: WebSocketClient | null = null;
+let hasInitialized = false;
+let initializationPromise: Promise<void> | null = null;
+
+// Buffer messages until the WebSocket client is ready. This avoids losing logs when the
+// service worker restarts and the connection is still being re-established.
+const pendingMessages: ExtensionMessage[] = [];
 
 // Track tab information
 const tabs = new Map<number, TabInfo>();
@@ -17,151 +25,275 @@ const STORAGE_KEYS = {
   ENABLED: 'console_mcp_enabled',
   SANITIZE: 'console_mcp_sanitize',
   LOG_LEVELS: 'console_mcp_log_levels',
+  LAST_DISCOVERY_PORT: 'console_mcp_last_discovery_port',
 };
 
 // Extension state
 let isEnabled = true;
+let lastDiscoveryPort: number | null = null;
+let activeTabId: number | null = null;
+let connectionStatus: 'connected' | 'disconnected' | 'reconnecting' = 'disconnected';
 
-async function tryHttpDiscovery(): Promise<string | null> {
+function enqueueMessage(message: ExtensionMessage): void {
+  pendingMessages.push(message);
+}
+
+function flushPendingMessages(): void {
+  if (!wsClient || pendingMessages.length === 0) {
+    return;
+  }
+
+  const messages = pendingMessages.splice(0, pendingMessages.length);
+  for (const message of messages) {
+    wsClient.send(message);
+  }
+}
+
+function sendOrQueue(message: ExtensionMessage): void {
+  if (wsClient) {
+    wsClient.send(message);
+    return;
+  }
+
+  enqueueMessage(message);
+}
+
+function getActiveTabLogCount(): number {
+  if (activeTabId === null) {
+    return 0;
+  }
+  return tabLogCounts.get(activeTabId) ?? 0;
+}
+
+function formatLogCount(count: number): string {
+  if (count === 0) return '';
+  if (count > 999) return '1k+';
+  return String(count);
+}
+
+function updateBadge(): void {
+  const logCount = getActiveTabLogCount();
+
+  if (logCount > 0) {
+    chrome.action.setBadgeText({ text: formatLogCount(logCount) });
+    chrome.action.setBadgeBackgroundColor({ color: '#EF4444' });
+    return;
+  }
+
+  switch (connectionStatus) {
+    case 'connected':
+      chrome.action.setBadgeText({ text: '' });
+      chrome.action.setBadgeBackgroundColor({ color: '#10B981' });
+      break;
+    case 'reconnecting':
+      chrome.action.setBadgeText({ text: '...' });
+      chrome.action.setBadgeBackgroundColor({ color: '#F59E0B' });
+      break;
+    default:
+      chrome.action.setBadgeText({ text: '!' });
+      chrome.action.setBadgeBackgroundColor({ color: '#EF4444' });
+      break;
+  }
+}
+
+interface DiscoveryResult {
+  wsUrl: string;
+  port: number;
+  serverId?: string;
+}
+
+async function tryHttpDiscovery(port: number): Promise<DiscoveryResult | null> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 1000);
-    const response = await fetch(`http://localhost:${DISCOVERY_PORT}/discover`, {
+    const timeout = setTimeout(() => controller.abort(), DISCOVERY_TIMEOUT_MS);
+    const response = await fetch(`http://localhost:${port}/discover`, {
       signal: controller.signal,
+      cache: 'no-store',
     });
     clearTimeout(timeout);
     if (response.ok) {
-      const { wsUrl } = (await response.json()) as { wsUrl: string };
-      console.log(`[Background] Discovered server via HTTP: ${wsUrl}`);
-      return wsUrl;
+      const payload = (await response.json()) as DiscoveryPayload;
+      if (payload.identifier !== CONSOLE_MCP_IDENTIFIER) {
+        return null;
+      }
+
+      console.log(
+        `[Background] Discovered server via HTTP (port ${port}): ${payload.wsUrl} (server ${payload.serverId ?? 'unknown'})`,
+      );
+      return { wsUrl: payload.wsUrl, port, serverId: payload.serverId };
     }
   } catch {
-    // ignore
+    // ignore failed attempts
   }
   return null;
 }
 
-function testPort(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      const ws = new WebSocket(`ws://localhost:${port}`);
-      const timer = setTimeout(() => {
-        try {
-          ws.close();
-        } catch {}
-        resolve(false);
-      }, 500);
-      ws.onopen = () => {
-        clearTimeout(timer);
-        ws.close();
-        resolve(true);
-      };
-      ws.onerror = () => {
-        clearTimeout(timer);
-        resolve(false);
-      };
-    } catch {
-      resolve(false);
-    }
-  });
+async function rememberDiscoveryPort(port: number): Promise<void> {
+  lastDiscoveryPort = port;
+  await chrome.storage.local.set({ [STORAGE_KEYS.LAST_DISCOVERY_PORT]: port });
 }
 
 async function discoverServerUrl(): Promise<string> {
-  // 1) HTTP discovery
-  const httpUrl = await tryHttpDiscovery();
-  if (httpUrl) return httpUrl;
+  const httpResult = await discoverViaHttpRange();
+  if (httpResult) {
+    await rememberDiscoveryPort(httpResult.port);
+    return httpResult.wsUrl;
+  }
 
-  // 2) Port scan fallback
-  for (const port of FALLBACK_PORTS) {
+  throw new Error('Console MCP server not found via discovery');
+}
+
+async function discoverViaHttpRange(): Promise<DiscoveryResult | null> {
+  const tried = new Set<number>();
+
+  const prioritized: Array<number | null> = [lastDiscoveryPort, DISCOVERY_PORT];
+  for (const candidate of prioritized) {
+    if (candidate === null || tried.has(candidate)) {
+      continue;
+    }
+    tried.add(candidate);
     // eslint-disable-next-line no-await-in-loop
-    const ok = await testPort(port);
-    if (ok) {
-      const url = `ws://localhost:${port}`;
-      console.log(`[Background] Discovered server via port scan: ${url}`);
-      return url;
+    const result = await tryHttpDiscovery(candidate);
+    if (result) {
+      return result;
     }
   }
 
-  // 3) Default fallback
-  return 'ws://localhost:9847';
-}
-
-// Initialize settings and connect immediately
-async function initialize() {
-  console.log('[Background] Initializing...');
-
-  // Load settings
-  const settings = await chrome.storage.local.get([
-    STORAGE_KEYS.ENABLED,
-    STORAGE_KEYS.SANITIZE,
-    STORAGE_KEYS.LOG_LEVELS,
-  ]);
-
-  isEnabled = settings[STORAGE_KEYS.ENABLED] !== false;
-
-  // Discover server URL and initialize client
-  const wsUrl = await discoverServerUrl();
-  wsClient = new WebSocketClient({ url: wsUrl });
-
-  // Connect to WebSocket server
-  if (isEnabled) {
-    wsClient.connect();
+  for (let port = DISCOVERY_PORT_RANGE.start; port <= DISCOVERY_PORT_RANGE.end; port++) {
+    if (tried.has(port)) {
+      continue;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const result = await tryHttpDiscovery(port);
+    if (result) {
+      return result;
+    }
   }
 
-  // Handle incoming messages from server (browser commands)
-  wsClient.onMessage(async (message) => {
-    await handleServerMessage(message);
-  });
+  return null;
+}
+
+async function ensureInitialized(): Promise<void> {
+  if (hasInitialized) {
+    return;
+  }
+
+  if (initializationPromise) {
+    await initializationPromise;
+    return;
+  }
+
+  initializationPromise = (async () => {
+    console.log('[Background] Initializing...');
+
+    // Load settings
+    const settings = await chrome.storage.local.get([
+      STORAGE_KEYS.ENABLED,
+      STORAGE_KEYS.SANITIZE,
+      STORAGE_KEYS.LOG_LEVELS,
+      STORAGE_KEYS.LAST_DISCOVERY_PORT,
+    ]);
+
+    isEnabled = settings[STORAGE_KEYS.ENABLED] !== false;
+    const storedPort = settings[STORAGE_KEYS.LAST_DISCOVERY_PORT];
+    if (typeof storedPort === 'number' && Number.isFinite(storedPort)) {
+      lastDiscoveryPort = storedPort;
+    }
+
+    // Discover server URL and initialize client
+    const wsUrl = await discoverServerUrl();
+    wsClient = new WebSocketClient({ url: wsUrl, urlResolver: discoverServerUrl });
+
+    wireStatusHandler();
+
+    // Handle incoming messages from server (browser commands)
+    wsClient.onMessage(async (message) => {
+      await handleServerMessage(message);
+    });
+
+    // Connect to WebSocket server
+    if (isEnabled) {
+      wsClient.connect();
+    }
+
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (activeTab?.id) {
+      activeTabId = activeTab.id;
+    }
+
+    flushPendingMessages();
+    updateBadge();
+    hasInitialized = true;
+  })();
+
+  try {
+    await initializationPromise;
+  } catch (error) {
+    console.error('[Background] Failed to initialize:', error);
+    wsClient = null;
+    initializationPromise = null;
+    throw error;
+  }
 }
 
 // Initialize extension
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('[Background] Extension installed');
-  await initialize();
+  await ensureInitialized();
 });
 
 // Connect on startup
 chrome.runtime.onStartup.addListener(() => {
   console.log('[Background] Extension started');
-  initialize();
+  void ensureInitialized();
 });
 
 // Initialize immediately when service worker loads
-initialize();
+void ensureInitialized();
 
 // Handle messages from content scripts and popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case 'console_log':
       if (isEnabled) {
-        handleConsoleLog(message.data, sender);
+        void ensureInitialized().then(() => {
+          if (isEnabled) {
+            handleConsoleLog(message.data, sender);
+          }
+        });
       }
-      break;
+      return true;
 
     case 'get_tab_id':
       sendResponse({ tabId: sender.tab?.id || -1 });
       return true;
 
     case 'get_status':
-      sendResponse({
-        connected: wsClient.getStatus() === 'connected',
-        enabled: isEnabled,
-        queueLength: wsClient.getQueueLength(),
+      void ensureInitialized().then(() => {
+        sendResponse({
+          connected: wsClient?.getStatus() === 'connected',
+          enabled: isEnabled,
+          queueLength: wsClient?.getQueueLength() || pendingMessages.length,
+        });
       });
       return true;
 
     case 'toggle_enabled':
-      toggleEnabled().then((enabled) => {
-        sendResponse({ enabled });
+      void ensureInitialized().then(() => {
+        toggleEnabled().then((enabled) => {
+          sendResponse({ enabled });
+        });
       });
       return true;
 
     case 'get_tabs':
-      const tabStats = Array.from(tabs.values()).map((tab) => ({
-        ...tab,
-        logCount: tabLogCounts.get(tab.id) || 0,
-      }));
-      sendResponse({ tabs: tabStats });
+      void ensureInitialized().then(() => {
+        const tabStats = Array.from(tabs.values()).map((tab) => ({
+          ...tab,
+          logCount: tabLogCounts.get(tab.id) || 0,
+        }));
+        sendResponse({ tabs: tabStats });
+      });
       return true;
   }
 });
@@ -182,7 +314,7 @@ function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender)
     tabs.set(sender.tab.id, tabInfo);
 
     // Notify server about new tab
-    wsClient.send({
+    sendOrQueue({
       type: 'tab_opened',
       data: tabInfo,
     });
@@ -190,6 +322,9 @@ function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender)
 
   // Update log count
   tabLogCounts.set(sender.tab.id, (tabLogCounts.get(sender.tab.id) || 0) + 1);
+  if (activeTabId === sender.tab.id) {
+    updateBadge();
+  }
 
   // Ensure the log has the correct tab ID
   const logWithTabId: LogMessage = {
@@ -198,7 +333,7 @@ function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender)
   };
 
   // Send to WebSocket server
-  wsClient.send({
+  sendOrQueue({
     type: 'log',
     data: logWithTabId,
   });
@@ -219,13 +354,15 @@ async function handleServerMessage(message: any): Promise<void> {
     if (!tabId) {
       console.error('[Background] No target tab found for command');
       // Send error response back to server
-      wsClient.send({
-        type: `${message.type}_response`,
-        data: {
-          requestId: message.data.requestId,
-          error: 'No target tab found',
-        },
-      } as any);
+      if (wsClient) {
+        wsClient.send({
+          type: `${message.type}_response`,
+          data: {
+            requestId: message.data.requestId,
+            error: 'No target tab found',
+          },
+        } as any);
+      }
       return;
     }
 
@@ -240,13 +377,15 @@ async function handleServerMessage(message: any): Promise<void> {
     } catch (error) {
       console.error('[Background] Failed to send command to content script:', error);
       // Send error response back to server
-      wsClient.send({
-        type: `${message.type}_response`,
-        data: {
-          requestId: message.data.requestId,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      } as any);
+      if (wsClient) {
+        wsClient.send({
+          type: `${message.type}_response`,
+          data: {
+            requestId: message.data.requestId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        } as any);
+      }
     }
   }
 }
@@ -254,13 +393,18 @@ async function handleServerMessage(message: any): Promise<void> {
 // Handle tab closure
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabs.has(tabId)) {
-    wsClient.send({
+    sendOrQueue({
       type: 'tab_closed',
       data: { tabId },
     });
 
     tabs.delete(tabId);
     tabLogCounts.delete(tabId);
+  }
+
+  if (activeTabId === tabId) {
+    activeTabId = null;
+    updateBadge();
   }
 });
 
@@ -277,23 +421,18 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  activeTabId = activeInfo.tabId;
+  updateBadge();
+});
+
 // WebSocket status updates
 function wireStatusHandler(): void {
   if (!wsClient) return;
   wsClient.onStatusChange((status) => {
     console.log(`[Background] WebSocket status: ${status}`);
-
-    // Update badge
-    if (status === 'connected') {
-      chrome.action.setBadgeText({ text: '' });
-      chrome.action.setBadgeBackgroundColor({ color: '#10B981' });
-    } else if (status === 'reconnecting') {
-      chrome.action.setBadgeText({ text: '...' });
-      chrome.action.setBadgeBackgroundColor({ color: '#F59E0B' });
-    } else {
-      chrome.action.setBadgeText({ text: '!' });
-      chrome.action.setBadgeBackgroundColor({ color: '#EF4444' });
-    }
+    connectionStatus = status;
+    updateBadge();
   });
 }
 
@@ -311,6 +450,7 @@ async function toggleEnabled(): Promise<boolean> {
     wsClient?.disconnect();
   }
 
+  updateBadge();
   return isEnabled;
 }
 

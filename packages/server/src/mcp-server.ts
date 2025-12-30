@@ -58,103 +58,154 @@ export class McpServer {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
         {
-          name: 'console_list_logs',
-          description:
-            'List captured console logs with pagination and filtering. Supports filtering by log level, tab, URL pattern, and time range.',
+          name: 'console_tabs',
+          description: 'List or intelligently suggest browser tabs to investigate.',
           inputSchema: {
             type: 'object',
             properties: {
+              action: {
+                type: 'string',
+                enum: ['list', 'suggest'],
+                description: 'Whether to list all tabs or request ranked suggestions',
+                default: 'list',
+              },
+              urlPatterns: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'URL patterns to match when action = suggest',
+              },
+              workingDirectory: {
+                type: 'string',
+                description: 'Working directory for project context when action = suggest',
+              },
+              ports: {
+                type: 'array',
+                items: { type: 'number' },
+                description: 'Expected ports when action = suggest',
+              },
+              domains: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Expected domains when action = suggest',
+              },
+              limit: {
+                type: 'number',
+                default: 5,
+                description: 'Max suggestions to return',
+              },
+            },
+          },
+        },
+        {
+          name: 'console_logs',
+          description:
+            'Unified log access surface. List paginated logs, fetch a single log, or tail streaming logs.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              action: {
+                type: 'string',
+                enum: ['list', 'get', 'tail'],
+                default: 'list',
+                description: 'Select list/get/tail behavior',
+              },
+              // list arguments
               levels: {
                 type: 'array',
                 items: {
                   type: 'string',
                   enum: ['log', 'info', 'warn', 'error', 'debug'],
                 },
-                description: 'Filter by log levels',
+                description: 'Log levels filter (list action)',
               },
               tabId: {
                 type: 'number',
-                description: 'Filter by tab ID',
+                description: 'Tab filter (list/tail actions)',
               },
               urlPattern: {
                 type: 'string',
-                description: 'Filter by URL pattern (regex)',
+                description: 'URL regex filter (list/tail actions)',
               },
               after: {
                 type: 'string',
-                description:
-                  'Filter logs after this time (ISO timestamp or relative like "5m", "1h")',
+                description: 'Relative/absolute start time (list action)',
               },
               before: {
                 type: 'string',
-                description: 'Filter logs before this time',
+                description: 'Relative/absolute end time (list action)',
               },
               sessionId: {
                 type: 'string',
-                description: 'Filter by session ID',
+                description: 'Session filter (list action)',
               },
               limit: {
                 type: 'number',
                 default: 100,
-                description: 'Maximum number of logs to return',
+                description: 'Page size for list action',
               },
               offset: {
                 type: 'number',
                 default: 0,
-                description: 'Number of logs to skip (for pagination)',
+                description: 'Pagination offset for list action',
               },
               sanitize: {
                 type: 'boolean',
                 default: false,
-                description: 'Apply sanitization to mask sensitive data',
+                description: 'Mask sensitive data (list/get)',
               },
               includeArgs: {
                 type: 'boolean',
                 default: false,
-                description: 'Include args array in response (can be large)',
+                description: 'Include args array (list action)',
               },
               includeStack: {
                 type: 'boolean',
                 default: false,
-                description: 'Include stack traces in response (can be large)',
+                description: 'Include stack traces (list action)',
               },
-            },
-          },
-        },
-        {
-          name: 'console_get_log',
-          description: 'Get a specific log by ID with full details (args, stack, etc.)',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              id: {
+              // get arguments
+              logId: {
                 type: 'string',
-                description: 'Log ID',
+                description: 'Log ID when action = get',
               },
-              sanitize: {
+              // tail arguments
+              follow: {
                 type: 'boolean',
-                default: false,
-                description: 'Apply sanitization',
+                default: true,
+                description: 'Follow new logs when action = tail',
+              },
+              filter: {
+                type: 'object',
+                description: 'Filter payload reused for list/tail actions',
+              },
+              lines: {
+                type: 'number',
+                default: 10,
+                description: 'Initial history count when action = tail',
               },
             },
-            required: ['id'],
           },
         },
         {
-          name: 'console_search_logs',
-          description:
-            'Search logs using regex patterns. Supports searching across message, args, and stack fields with context lines.',
+          name: 'console_search',
+          description: 'Search console logs using regex or keyword logic.',
           inputSchema: {
             type: 'object',
             properties: {
+              action: {
+                type: 'string',
+                enum: ['regex', 'keywords'],
+                description: 'Choose regex or keyword search mode',
+                default: 'regex',
+              },
               pattern: {
                 type: 'string',
-                description: 'Regular expression pattern',
+                description: 'Regex pattern when action = regex',
               },
               caseSensitive: {
                 type: 'boolean',
                 default: false,
-                description: 'Case sensitive search',
+                description: 'Case sensitive regex search',
               },
               fields: {
                 type: 'array',
@@ -163,303 +214,159 @@ export class McpServer {
                   enum: ['message', 'args', 'stack'],
                 },
                 default: ['message'],
-                description: 'Fields to search in (default: message only for smaller response)',
+                description: 'Fields to search (regex)',
               },
               contextLines: {
                 type: 'number',
                 default: 0,
-                description: 'Number of context lines before/after match',
+                description: 'Context lines before/after match (regex)',
               },
               limit: {
                 type: 'number',
                 default: 100,
-                description: 'Maximum number of results',
+                description: 'Maximum results',
               },
               filter: {
                 type: 'object',
-                description: 'Additional filters (same as console_list_logs)',
+                description: 'Filter payload shared across modes',
               },
               includeArgs: {
                 type: 'boolean',
                 default: false,
-                description: 'Include args array in results (can be large)',
+                description: 'Include args in matches',
               },
               includeStack: {
                 type: 'boolean',
                 default: false,
-                description: 'Include stack traces in results (can be large)',
+                description: 'Include stack traces in matches',
               },
-            },
-            required: ['pattern'],
-          },
-        },
-        {
-          name: 'console_search_keywords',
-          description: 'Search logs using keyword matching with AND/OR logic and exclusions',
-          inputSchema: {
-            type: 'object',
-            properties: {
               keywords: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Keywords to search for',
+                description: 'Keyword array when action = keywords',
               },
               logic: {
                 type: 'string',
                 enum: ['AND', 'OR'],
                 default: 'AND',
-                description: 'Logic to combine keywords',
+                description: 'Keyword logic',
               },
               exclude: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Keywords to exclude',
-              },
-              limit: {
-                type: 'number',
-                default: 100,
-                description: 'Maximum number of results',
-              },
-              filter: {
-                type: 'object',
-                description: 'Additional filters',
-              },
-              includeArgs: {
-                type: 'boolean',
-                default: false,
-                description: 'Include args array in results (can be large)',
-              },
-              includeStack: {
-                type: 'boolean',
-                default: false,
-                description: 'Include stack traces in results (can be large)',
-              },
-            },
-            required: ['keywords'],
-          },
-        },
-        {
-          name: 'console_tail_logs',
-          description: 'Stream/tail new logs in real-time with optional filtering',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              follow: {
-                type: 'boolean',
-                default: true,
-                description: 'Follow new logs',
-              },
-              filter: {
-                type: 'object',
-                description: 'Filters to apply',
-              },
-              lines: {
-                type: 'number',
-                default: 10,
-                description: 'Number of recent logs to show initially',
+                description: 'Words to exclude (keywords)',
               },
             },
           },
         },
         {
-          name: 'console_get_tabs',
-          description: 'Get information about active tabs',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'console_clear_logs',
-          description: 'Clear stored logs with optional filtering',
+          name: 'console_sessions',
+          description: 'Manage saved log sessions (save, load, list).',
           inputSchema: {
             type: 'object',
             properties: {
+              action: {
+                type: 'string',
+                enum: ['save', 'load', 'list'],
+                default: 'list',
+                description: 'Session action to perform',
+              },
+              filter: {
+                type: 'object',
+                description: 'Filters when saving sessions',
+              },
+              name: {
+                type: 'string',
+                description: 'Optional session name when saving',
+              },
+              description: {
+                type: 'string',
+                description: 'Optional session description when saving',
+              },
+              sessionId: {
+                type: 'string',
+                description: 'Session name/ID when loading',
+              },
+            },
+          },
+        },
+        {
+          name: 'console_maintenance',
+          description: 'Clear logs, export data, or fetch aggregate stats in one tool.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              action: {
+                type: 'string',
+                enum: ['clear', 'export', 'stats'],
+                default: 'stats',
+                description: 'Maintenance action',
+              },
               tabId: {
                 type: 'number',
-                description: 'Clear logs only for this tab',
+                description: 'Target tab when clearing logs',
               },
               before: {
                 type: 'string',
-                description: 'Clear logs before this timestamp',
+                description: 'Timestamp when clearing logs',
               },
-            },
-          },
-        },
-        {
-          name: 'console_export_logs',
-          description: 'Export logs in various formats (JSON, CSV, TXT)',
-          inputSchema: {
-            type: 'object',
-            properties: {
               format: {
                 type: 'string',
                 enum: ['json', 'csv', 'txt'],
-                description: 'Export format',
-              },
-              filter: {
-                type: 'object',
-                description: 'Filters to apply',
+                description: 'Export format when action = export',
               },
               fields: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Fields to include',
+                description: 'Fields to include when exporting',
               },
               prettyPrint: {
                 type: 'boolean',
                 default: false,
-                description: 'Pretty print JSON',
+                description: 'Pretty print JSON export',
               },
-            },
-            required: ['format'],
-          },
-        },
-        {
-          name: 'console_save_session',
-          description: 'Save current logs as a named session for later retrieval',
-          inputSchema: {
-            type: 'object',
-            properties: {
               filter: {
                 type: 'object',
-                description: 'Filters to select logs',
-              },
-              name: {
-                type: 'string',
-                description: 'Optional human-readable session name (e.g., "bug-123", "auth-error-investigation")',
-              },
-              description: {
-                type: 'string',
-                description: 'Optional description of what this session contains',
+                description: 'Filters when exporting data',
               },
             },
           },
         },
         {
-          name: 'console_load_session',
-          description: 'Load logs from a saved session by ID or name',
+          name: 'console_browser',
+          description: 'Execute JS, fetch page info, or query DOM from a single surface.',
           inputSchema: {
             type: 'object',
             properties: {
-              sessionId: {
+              action: {
                 type: 'string',
-                description: 'Session ID or name (e.g., "bug-123" or UUID)',
+                enum: ['execute_js', 'page_info', 'query_dom'],
+                default: 'page_info',
+                description: 'Browser action to perform',
               },
-            },
-            required: ['sessionId'],
-          },
-        },
-        {
-          name: 'console_list_sessions',
-          description: 'List all saved sessions',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'console_get_stats',
-          description: 'Get statistics about captured logs',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
-        },
-        {
-          name: 'console_suggest_tab',
-          description:
-            'Suggest the most relevant browser tab based on project context. Returns ranked tab suggestions with reasoning. Use this to intelligently select which tab to focus on.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              urlPatterns: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'URL patterns to match (regex or substring)',
-              },
-              workingDirectory: {
-                type: 'string',
-                description: 'Current working directory for project context',
-              },
-              ports: {
-                type: 'array',
-                items: { type: 'number' },
-                description: 'Expected port numbers (e.g., [3000, 5173])',
-              },
-              domains: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'Expected domains (e.g., ["localhost", "myapp.dev"])',
-              },
-              limit: {
-                type: 'number',
-                default: 5,
-                description: 'Maximum number of suggestions to return',
-              },
-            },
-          },
-        },
-        {
-          name: 'console_execute_js',
-          description:
-            'Execute JavaScript code in the browser tab context. Useful for reproducing issues, testing fixes, or querying application state.',
-          inputSchema: {
-            type: 'object',
-            properties: {
               code: {
                 type: 'string',
-                description: 'JavaScript code to execute',
+                description: 'JavaScript string when action = execute_js',
               },
               tabId: {
                 type: 'number',
-                description: 'Optional tab ID (if not provided, executes in active tab)',
-              },
-            },
-            required: ['code'],
-          },
-        },
-        {
-          name: 'console_get_page_info',
-          description:
-            'Get information about the current page (title, URL, optionally HTML). Useful for understanding page context during debugging.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              tabId: {
-                type: 'number',
-                description: 'Optional tab ID',
+                description: 'Target tab (all actions optional)',
               },
               includeHtml: {
                 type: 'boolean',
                 default: false,
-                description: 'Include full page HTML (can be large)',
+                description: 'Include HTML when requesting page info',
               },
-            },
-          },
-        },
-        {
-          name: 'console_query_dom',
-          description:
-            'Query DOM elements using CSS selectors and extract properties. Useful for inspecting page state and element attributes.',
-          inputSchema: {
-            type: 'object',
-            properties: {
               selector: {
                 type: 'string',
-                description: 'CSS selector (e.g., ".error-message", "#submit-btn")',
-              },
-              tabId: {
-                type: 'number',
-                description: 'Optional tab ID',
+                description: 'CSS selector when action = query_dom',
               },
               properties: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'Element properties to extract (e.g., ["textContent", "className", "value"])',
+                description: 'DOM properties to extract when querying DOM',
               },
             },
-            required: ['selector'],
           },
         },
       ],
@@ -529,47 +436,49 @@ export class McpServer {
                 type: 'text',
                 text: `Use Console MCP tools to query browser console logs. Here are the available tools:
 
-**Tab Selection (Start Here):**
-- console_suggest_tab: Intelligently suggest relevant tabs based on project context
-- console_get_tabs: Get all active browser tabs with log counts
+**console_tabs** — action: list | suggest
+- list: show all tabs with log counts.
+- suggest: provide ranked suggestions using working directory, URL patterns, domains, or ports.
 
-**Query & Filter:**
-- console_list_logs: List logs with filtering (level, tab, URL, time range)
-- console_get_log: Get a specific log by ID
-- console_tail_logs: Stream recent logs in real-time
+**console_logs** — action: list | get | tail
+- list: filter by level, tab, URL, or time window.
+- get: fetch a single log by ID (include args/stack as needed).
+- tail: stream the most recent logs with optional filters.
 
-**Search:**
-- console_search_logs: Search logs using regex patterns
-- console_search_keywords: Search logs using keywords (AND/OR logic)
+**console_search** — action: regex | keywords
+- regex: search message/args/stack with regex + context lines.
+- keywords: boolean keyword search with AND/OR/exclusions.
 
-**Analytics:**
-- console_get_stats: Get statistics about captured logs
+**console_sessions** — action: save | load | list
+- save: capture current logs (optionally filtered) under a name/description.
+- load: restore a saved session by ID or name.
+- list: enumerate available sessions.
 
-**Management:**
-- console_clear_logs: Clear stored logs
-- console_export_logs: Export logs in JSON, CSV, or text format
+**console_maintenance** — action: stats | clear | export
+- stats: summarize captured logs and per-tab metrics.
+- clear: remove logs globally or for a tab/before timestamp.
+- export: dump logs as JSON/CSV/TXT (supports field selection).
 
-**Sessions:**
-- console_save_session: Save current logs as a named session
-- console_load_session: Load a previously saved session
-- console_list_sessions: List all saved sessions
+**console_browser** — action: page_info | execute_js | query_dom
+- page_info: get page title/URL (optional HTML).
+- execute_js: run JS in tab context (provide code + optional tabId).
+- query_dom: extract DOM properties via CSS selectors.
 
-**Tab Selection Strategy:**
-1. If the user's query is about a specific project/site, use console_suggest_tab with:
-   - workingDirectory from console://context resource
-   - urlPatterns based on user context (e.g., ["localhost"], project name)
-   - ports from common dev servers (3000, 5173, 8080, etc.)
-2. Review suggestions and select the top-ranked tab (highest score)
-3. If multiple tabs have similar scores, ask the user to clarify
-4. Use the selected tab's ID in subsequent queries (tabId filter)
+**Tab Selection Strategy**
+1. If the user's query is about a specific project/site, call console_tabs with action: "suggest".
+   - Include workingDirectory from console://context, relevant urlPatterns, and dev ports (3000, 5173, 8080, etc.).
+2. Review the ranked suggestions and choose the top-scoring tab.
+3. If multiple tabs look similar, ask the user for clarification.
+4. Use the chosen tabId in console_logs / console_search / console_browser calls.
 
-**Common usage patterns:**
-- "show errors" → First suggest tab, then console_list_logs with levels: ["error"] and tabId
-- "from last X minutes" → Use after parameter with relative time like "5m", "1h"
-- "from localhost:3000" → Use console_suggest_tab with ports: [3000]
-- "search for X" → Use console_search_logs or console_search_keywords with tabId filter
-- "statistics" → Use console_get_stats
-- "export" → Use console_export_logs
+**Common usage patterns**
+- "show errors" → console_tabs(action: "suggest") → console_logs(action: "list", levels: ["error"], tabId: X)
+- "from last X minutes" → console_logs(action: "list", after: "5m")
+- "search for X" → console_search(action: "regex", pattern: "X", filter: { tabId })
+- "statistics" → console_maintenance(action: "stats")
+- "export" → console_maintenance(action: "export", format: "json")
+- "save this investigation" → console_sessions(action: "save", name: "checkout-bug")
+- "poke DOM" → console_browser(action: "query_dom", selector: ".error-message")
 
 Use the appropriate Console MCP tools to help the user query and analyze their browser console logs.`,
               },
@@ -586,53 +495,23 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
 
       try {
         switch (name) {
-          case 'console_list_logs':
-            return await this.handleListLogs(args as any);
+          case 'console_tabs':
+            return await this.handleTabsTool(args as any);
 
-          case 'console_get_log':
-            return await this.handleGetLog(args as any);
+          case 'console_logs':
+            return await this.handleLogsTool(args as any);
 
-          case 'console_search_logs':
-            return await this.handleSearchLogs(args as any);
+          case 'console_search':
+            return await this.handleSearchTool(args as any);
 
-          case 'console_search_keywords':
-            return await this.handleSearchKeywords(args as any);
+          case 'console_sessions':
+            return await this.handleSessionsTool(args as any);
 
-          case 'console_tail_logs':
-            return await this.handleTailLogs(args as any);
+          case 'console_maintenance':
+            return await this.handleMaintenanceTool(args as any);
 
-          case 'console_get_tabs':
-            return await this.handleGetTabs();
-
-          case 'console_clear_logs':
-            return await this.handleClearLogs(args as any);
-
-          case 'console_export_logs':
-            return await this.handleExportLogs(args as any);
-
-          case 'console_save_session':
-            return await this.handleSaveSession(args as any);
-
-          case 'console_load_session':
-            return await this.handleLoadSession(args as any);
-
-          case 'console_list_sessions':
-            return await this.handleListSessions();
-
-          case 'console_get_stats':
-            return await this.handleGetStats();
-
-          case 'console_suggest_tab':
-            return await this.handleSuggestTab(args as any);
-
-          case 'console_execute_js':
-            return await this.handleExecuteJS(args as any);
-
-          case 'console_get_page_info':
-            return await this.handleGetPageInfo(args as any);
-
-          case 'console_query_dom':
-            return await this.handleQueryDOM(args as any);
+          case 'console_browser':
+            return await this.handleBrowserTool(args as any);
 
           default:
             throw new Error(`Unknown tool: ${name}`);
@@ -725,6 +604,224 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
         },
       ],
     };
+  }
+
+  private async handleTabsTool(args: {
+    action?: 'list' | 'suggest';
+    urlPatterns?: string[];
+    workingDirectory?: string;
+    ports?: number[];
+    domains?: string[];
+    limit?: number;
+  }) {
+    const action = args?.action || 'list';
+
+    if (action === 'suggest') {
+      return this.handleSuggestTab({
+        urlPatterns: args.urlPatterns,
+        workingDirectory: args.workingDirectory,
+        ports: args.ports,
+        domains: args.domains,
+        limit: args.limit,
+      });
+    }
+
+    return this.handleGetTabs();
+  }
+
+  private async handleLogsTool(args: {
+    action?: 'list' | 'get' | 'tail';
+    levels?: string[];
+    tabId?: number;
+    urlPattern?: string;
+    after?: string;
+    before?: string;
+    sessionId?: string;
+    limit?: number;
+    offset?: number;
+    sanitize?: boolean;
+    includeArgs?: boolean;
+    includeStack?: boolean;
+    logId?: string;
+    follow?: boolean;
+    filter?: FilterOptions;
+    lines?: number;
+  }) {
+    const action = args?.action || 'list';
+
+    if (action === 'get') {
+      if (!args?.logId) {
+        throw new Error('Missing logId for console_logs action=get');
+      }
+      return this.handleGetLog({ id: args.logId, sanitize: args.sanitize });
+    }
+
+    if (action === 'tail') {
+      return this.handleTailLogs({
+        follow: args.follow,
+        filter: args.filter ?? {
+          levels: args.levels as any,
+          tabId: args.tabId,
+          urlPattern: args.urlPattern,
+        },
+        lines: args.lines,
+      });
+    }
+
+    return this.handleListLogs({
+      levels: args.levels,
+      tabId: args.tabId,
+      urlPattern: args.urlPattern,
+      after: args.after,
+      before: args.before,
+      sessionId: args.sessionId,
+      limit: args.limit,
+      offset: args.offset,
+      sanitize: args.sanitize,
+      includeArgs: args.includeArgs,
+      includeStack: args.includeStack,
+    });
+  }
+
+  private async handleSearchTool(args: {
+    action?: 'regex' | 'keywords';
+    pattern?: string;
+    caseSensitive?: boolean;
+    fields?: Array<'message' | 'args' | 'stack'>;
+    contextLines?: number;
+    limit?: number;
+    filter?: FilterOptions;
+    includeArgs?: boolean;
+    includeStack?: boolean;
+    keywords?: string[];
+    logic?: 'AND' | 'OR';
+    exclude?: string[];
+  }) {
+    const action = args?.action || 'regex';
+
+    if (action === 'keywords') {
+      if (!args?.keywords || args.keywords.length === 0) {
+        throw new Error('keywords array is required for console_search action=keywords');
+      }
+      return this.handleSearchKeywords({
+        keywords: args.keywords,
+        logic: args.logic,
+        exclude: args.exclude,
+        limit: args.limit,
+        filter: args.filter,
+        includeArgs: args.includeArgs,
+        includeStack: args.includeStack,
+      } satisfies KeywordSearchParams);
+    }
+
+    if (!args?.pattern) {
+      throw new Error('pattern is required for console_search action=regex');
+    }
+
+    return this.handleSearchLogs({
+      pattern: args.pattern,
+      caseSensitive: args.caseSensitive,
+      fields: args.fields,
+      contextLines: args.contextLines,
+      limit: args.limit,
+      filter: args.filter,
+      includeArgs: args.includeArgs,
+      includeStack: args.includeStack,
+    });
+  }
+
+  private async handleSessionsTool(args: {
+    action?: 'save' | 'load' | 'list';
+    filter?: FilterOptions;
+    name?: string;
+    description?: string;
+    sessionId?: string;
+  }) {
+    const action = args?.action || 'list';
+
+    if (action === 'save') {
+      return this.handleSaveSession({
+        filter: args.filter,
+        name: args.name,
+        description: args.description,
+      });
+    }
+
+    if (action === 'load') {
+      if (!args?.sessionId) {
+        throw new Error('sessionId is required for console_sessions action=load');
+      }
+      return this.handleLoadSession({ sessionId: args.sessionId });
+    }
+
+    return this.handleListSessions();
+  }
+
+  private async handleMaintenanceTool(args: {
+    action?: 'clear' | 'export' | 'stats';
+    tabId?: number;
+    before?: string;
+    filter?: FilterOptions;
+    format?: 'json' | 'csv' | 'txt';
+    fields?: string[];
+    prettyPrint?: boolean;
+  }) {
+    const action = args?.action || 'stats';
+
+    if (action === 'clear') {
+      return this.handleClearLogs({
+        tabId: args.tabId,
+        before: args.before,
+      });
+    }
+
+    if (action === 'export') {
+      if (!args?.format) {
+        throw new Error('format is required for console_maintenance action=export');
+      }
+      return this.handleExportLogs({
+        format: args.format,
+        filter: args.filter,
+        fields: args.fields,
+        prettyPrint: args.prettyPrint,
+      } as any);
+    }
+
+    return this.handleGetStats();
+  }
+
+  private async handleBrowserTool(args: {
+    action?: 'execute_js' | 'page_info' | 'query_dom';
+    code?: string;
+    tabId?: number;
+    includeHtml?: boolean;
+    selector?: string;
+    properties?: string[];
+  }) {
+    const action = args?.action || 'page_info';
+
+    if (action === 'execute_js') {
+      if (!args?.code) {
+        throw new Error('code is required for console_browser action=execute_js');
+      }
+      return this.handleExecuteJS({ code: args.code, tabId: args.tabId });
+    }
+
+    if (action === 'query_dom') {
+      if (!args?.selector) {
+        throw new Error('selector is required for console_browser action=query_dom');
+      }
+      return this.handleQueryDOM({
+        selector: args.selector,
+        tabId: args.tabId,
+        properties: args.properties,
+      } as any);
+    }
+
+    return this.handleGetPageInfo({
+      tabId: args.tabId,
+      includeHtml: args.includeHtml,
+    });
   }
 
   private async handleGetLog(args: { id: string; sanitize?: boolean }) {

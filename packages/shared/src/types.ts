@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export const CONSOLE_MCP_IDENTIFIER = 'console-logs-mcp';
+
 // Log levels
 export type LogLevel = 'log' | 'info' | 'warn' | 'error' | 'debug';
 
@@ -53,6 +55,15 @@ export interface FilterOptions {
   after?: string; // ISO timestamp or relative time (e.g., "5m", "1h")
   before?: string;
   sessionId?: string;
+}
+
+export interface DiscoveryPayload {
+  identifier: string;
+  serverId?: string;
+  wsHost: string;
+  wsPort: number;
+  wsUrl: string;
+  timestamp: number;
 }
 
 // Search parameters

@@ -120,7 +120,7 @@ console-logs-mcp fetches matching logs instantly, with full stack traces, timest
 | Feature | Description | Benefit |
 |---------|-------------|---------|
 | 🔍 **Real-time Log Capture** | Browser extension captures console logs from all tabs | Never miss a log, even on page reload |
-| 🤖 **AI Integration** | Query logs using natural language through 16 MCP tools | Ask questions instead of writing filters |
+| 🤖 **AI Integration** | Query logs using natural language through 6 multi-action MCP tools | Ask questions instead of writing filters |
 | 🎯 **Smart Tab Selection** | Automatically suggest relevant tabs based on project context | Find the right tab instantly in multi-project setups |
 | 🔎 **Advanced Search** | Regex and keyword search with filtering by level, URL, time | Powerful pattern matching and boolean logic |
 | 📊 **Session Management** | Save and restore named log sessions for debugging | Compare before/after, reproduce issues with memorable names |
@@ -367,418 +367,95 @@ Query DOM for '.submit-btn' and get disabled, className properties
 
 ## MCP Tools Reference
 
-console-logs-mcp provides 16 specialized tools for comprehensive log management and browser automation. These tools work together to provide a complete debugging workflow.
+console-logs-mcp now exposes **six multi-action tools**. Each tool keeps the surface area small while still covering the entire debugging workflow. Pass the desired `action` plus only the fields you need and the server routes the request to the right handler.
 
 ---
 
-### 🎯 Tab Selection
+### 🎯 `console_tabs`
 
-#### `console_suggest_tab`
+Centralized tab intelligence.
 
-**Intelligently suggest relevant tabs based on project context**
+- **`action: "list"`** — returns every connected tab with URLs, titles, and log counts; perfect for quick situational awareness.
+- **`action: "suggest"`** — feeds working directory, URL patterns, domains, or expected ports to get a ranked list of likely tabs with reasoning.
 
-The smartest way to find which browser tab you should focus on when debugging.
-
-**Key Features**:
-- **Context-Aware**: Analyzes working directory, expected ports, and URL patterns
-- **Ranked Results**: Returns top 5 suggestions with reasoning
-- **Activity Tracking**: Shows recent error counts per tab
-- **Pattern Matching**: Matches against project-specific domains and paths
-
-**Common Use Cases**:
-```
-• Multi-project debugging: "Which tab is for my checkout service?"
-• Port-based selection: "Find the tab running on port 3000"
-• Domain filtering: "Show me tabs from localhost"
-```
-
-**Best Practices**:
-- Provide working directory for better context
-- Specify expected ports (e.g., [3000, 5173])
-- Use URL patterns for specific routes (e.g., "/api/*")
+**Tips**
+- Use the `console://context` resource to fill `workingDirectory`.
+- Provide multiple `urlPatterns` when juggling monorepos or staging environments.
 
 ---
 
-#### `console_get_tabs`
+### 📋 `console_logs`
 
-**Get active browser tabs with log counts**
+One tool for all direct log access.
 
-Quick overview of all tabs currently being monitored.
+- **`action: "list"`** — filter logs by level, tab, URL regex, or time window with pagination plus optional args/stack fields.
+- **`action: "get"`** — fetch one log by ID for deep inspection (optionally sanitized).
+- **`action: "tail"`** — stream the most recent logs while you reproduce an issue; reuses the same filters as `list`.
 
-**Returns**:
-- Tab ID and title
-- Current URL
-- Log count by severity level
-- Last activity timestamp
-
-**Common Use Cases**:
-```
-• Overview: "Show me all active tabs"
-• Log counts: "Which tabs have error logs?"
-• Activity check: "List tabs with recent console activity"
-```
+**Tips**
+- Default responses omit `args`/`stack`; only include them when needed to save tokens.
+- Use relative time strings like `"10m"` or `"2h"` for quick windowing.
 
 ---
 
-### 📋 Query & Filter
+### 🔍 `console_search`
 
-#### `console_list_logs`
+Pattern and keyword discovery in a single entry point.
 
-**List logs with advanced filtering**
+- **`action: "regex"`** — run full regex queries across message/args/stack with optional context lines.
+- **`action: "keywords"`** — boolean keyword search with AND/OR logic plus exclusions for fast text filtering.
 
-The primary tool for querying logs with powerful filtering options.
-
-**Key Features**:
-- **Time Range Filtering**: Absolute timestamps or relative (e.g., "5m", "1h")
-- **Level Filtering**: Filter by log, info, warn, error, debug
-- **URL Pattern Matching**: Regex support for URL filtering
-- **Tab-Specific**: Focus on specific browser tabs
-- **Pagination**: Handle large result sets efficiently
-
-**Common Use Cases**:
-```
-• Recent errors: "Show error logs from the last 10 minutes"
-• URL-specific: "List warnings from /api/checkout"
-• Tab filtering: "Get all logs from tab ID 123"
-• Time range: "Show logs between 2:00 PM and 3:00 PM"
-```
-
-**Best Practices**:
-- Use relative time filters ("5m", "1h") for recent debugging
-- Set `includeArgs: false` and `includeStack: false` initially to reduce token usage
-- Apply level filters to focus on specific severity
-- Use `limit` parameter to control result size
+**Tips**
+- Pair with `tabId` filters to keep searches scoped.
+- Start with small result limits, then broaden if you need more hits.
 
 ---
 
-#### `console_get_log`
+### 💾 `console_sessions`
 
-**Get a specific log entry by ID**
+Session lifecycle without juggling three separate tools.
 
-Retrieve full details of a single log entry, including all arguments and stack traces.
+- **`action: "save"`** — snapshot current (or filtered) logs with a name + description for later comparison.
+- **`action: "load"`** — restore a saved session by human-friendly name or UUID.
+- **`action: "list"`** — enumerate existing sessions with timestamps and counts.
 
-**Returns**:
-- Complete log message
-- Full argument array
-- Stack trace (if available)
-- Timestamp and metadata
-
-**Common Use Cases**:
-```
-• Deep inspection: "Get full details of log ID abc123"
-• Stack trace analysis: "Show me the complete stack for this error"
-```
+**Tips**
+- Use descriptive names like `"checkout-bug-before-fix"` to speed up lookups.
+- Combine with `console_logs` after a `load` to re-run filters against the restored data.
 
 ---
 
-#### `console_tail_logs`
+### 🛠️ `console_maintenance`
 
-**Stream the most recent logs (live feed)**
+Operational utilities bundled together.
 
-Real-time log streaming for active debugging sessions.
+- **`action: "stats"`** — get aggregated metrics (counts per level/tab, recent hotspots).
+- **`action: "clear"`** — wipe all logs or only those for a tab/before timestamp to start fresh.
+- **`action: "export"`** — dump logs as JSON/CSV/TXT with optional field selection and pretty-printing.
 
-**Key Features**:
-- **Live Updates**: Follow new logs as they arrive
-- **Initial Context**: Shows N most recent logs first
-- **Filtering**: Apply same filters as list_logs
-- **Auto-Follow**: Continues streaming until stopped
-
-**Common Use Cases**:
-```
-• Active debugging: "Tail error logs in real-time"
-• Monitor specific URL: "Follow logs from /api/users"
-• Live testing: "Stream logs while I test this feature"
-```
+**Tips**
+- Use `stats` before digging in so the agent can describe the log landscape.
+- Export filtered subsets for bug reports instead of the entire log buffer.
 
 ---
 
-### 🔍 Search
+### 🎮 `console_browser`
 
-#### `console_search_logs`
+Browser automation stays compact but capable.
 
-**Search using regex patterns**
+- **`action: "page_info"`** — return page title/URL and optional HTML for context.
+- **`action: "execute_js"`** — run arbitrary JavaScript in page scope (e.g., inspect app state or toggle feature flags).
+- **`action: "query_dom"`** — read DOM nodes via CSS selectors; request multiple properties per element.
 
-Powerful pattern-based search across log messages, arguments, and stack traces.
-
-**Key Features**:
-- **Regex Support**: Full regular expression syntax
-- **Multi-Field Search**: Search message, args, or stack traces
-- **Context Lines**: Include surrounding logs for context
-- **Case Sensitivity**: Optional case-sensitive matching
-
-**Common Use Cases**:
-```
-• Pattern matching: "Find logs matching /auth.*failed/i"
-• Error codes: "Search for HTTP 4xx or 5xx errors"
-• Function calls: "Find all calls to validateUser()"
-```
-
-**Best Practices**:
-- Start with simple patterns, refine as needed
-- Use case-insensitive search by default
-- Add context lines (2-3) to understand log flow
-- Search only necessary fields to reduce token usage
+**Tips**
+- Always pair DOM/JS actions with a `tabId` selected via `console_tabs` to avoid ambiguity.
+- Keep JavaScript snippets short and idempotent; the agent can chain multiple calls if needed.
 
 ---
 
-#### `console_search_keywords`
+### 📦 Resource: `console://context`
 
-**Search using keyword matching (AND/OR logic)**
-
-Simple keyword-based search with boolean logic.
-
-**Key Features**:
-- **AND Logic**: All keywords must match
-- **OR Logic**: Any keyword can match
-- **Exclusions**: Exclude logs containing specific keywords
-- **Fast**: Optimized for simple text matching
-
-**Common Use Cases**:
-```
-• Multiple terms (AND): "Find logs with both 'authentication' AND 'failed'"
-• Any term (OR): "Search for 'error' OR 'exception' OR 'failed'"
-• Exclusions: "Find 'api' logs but exclude 'health-check'"
-```
-
-**Best Practices**:
-- Use AND logic for precise matches
-- Use OR logic for broad discovery
-- Combine with exclusions to filter noise
-
----
-
-### 📊 Analytics
-
-#### `console_get_stats`
-
-**Get statistics about captured logs**
-
-Comprehensive analytics about your log data.
-
-**Returns**:
-- Total log count by level
-- Logs per tab with URLs
-- Time distribution (logs per hour/minute)
-- Most common error patterns
-- Active tabs summary
-
-**Common Use Cases**:
-```
-• Overview: "Show me console log statistics"
-• Error analysis: "How many errors occurred in the last hour?"
-• Tab comparison: "Which tab has the most warnings?"
-```
-
----
-
-### 🗂️ Management
-
-#### `console_clear_logs`
-
-**Clear stored logs from memory**
-
-Remove logs to free up memory or start fresh debugging session.
-
-**Options**:
-- Clear all logs
-- Clear logs before specific timestamp
-- Clear logs from specific tab only
-
-**Common Use Cases**:
-```
-• Fresh start: "Clear all console logs"
-• Old logs: "Clear logs older than 1 hour"
-• Tab-specific: "Clear logs from tab 123"
-```
-
----
-
-#### `console_export_logs`
-
-**Export logs in JSON, CSV, or text format**
-
-Save logs for offline analysis, reporting, or archival.
-
-**Formats**:
-- **JSON**: Structured data with all fields
-- **CSV**: Spreadsheet-compatible format
-- **TXT**: Human-readable plain text
-
-**Options**:
-- Select specific fields to export
-- Apply filters before export
-- Pretty-print JSON for readability
-
-**Common Use Cases**:
-```
-• Bug reports: "Export error logs as JSON for the bug report"
-• Analysis: "Export last hour's logs as CSV for analysis"
-• Documentation: "Save these logs as readable text"
-```
-
----
-
-### 💾 Sessions
-
-#### `console_save_session`
-
-**Save current logs as a named session**
-
-Preserve log state for later review or comparison with human-readable names.
-
-**Key Features**:
-- Named sessions for easy identification (e.g., "bug-123", "auth-error-investigation")
-- Optional descriptions for context
-- Includes all log metadata and timestamps
-- Apply filters to save subset of logs
-- Persistent storage across restarts
-
-**Common Use Cases**:
-```
-• Bug investigation: "Save current logs as 'checkout-bug-2025' with description 'Payment flow crash'"
-• Before/after comparison: "Save session 'before-fix' before deploying fix"
-• Reproduce issues: "Save logs from failed test run as 'test-failure-nov-9'"
-```
-
-**Parameters**:
-- `name` (optional): Human-readable session name
-- `description` (optional): What this session contains
-- `filter` (optional): Filter logs to save
-
----
-
-#### `console_load_session`
-
-**Load a previously saved session by ID or name**
-
-Restore logs from a saved session for review or comparison. Accepts either UUID or human-readable name.
-
-**Key Features**:
-- Load by name (e.g., "bug-123") or UUID
-- Returns all logs from the session
-- Preserves original timestamps and metadata
-
-**Common Use Cases**:
-```
-• Review: "Load session 'checkout-bug-2025'"
-• Compare: "Load yesterday's error session"
-• Reproduce: "Restore logs from failed deployment"
-```
-
----
-
-#### `console_list_sessions`
-
-**List all saved sessions**
-
-View all available saved sessions with metadata.
-
-**Returns**:
-- Session names and IDs
-- Creation timestamps
-- Log counts per session
-- Size information
-
-**Common Use Cases**:
-```
-• Overview: "Show all saved log sessions"
-• Find session: "List sessions from last week"
-```
-
----
-
-### 📦 Resources
-
-#### `console://context`
-
-**Project context resource**
-
-MCP resource exposing project metadata for better context-aware suggestions.
-
-**Provides**:
-- Current working directory
-- Project name (from package.json)
-- Suggested ports (from common frameworks)
-- Environment information
-
-**Used by**:
-- `console_suggest_tab` for intelligent tab selection
-- AI assistants for project-aware debugging
-
----
-
-### 🎮 Browser Automation
-
-#### `console_execute_js`
-
-**Execute JavaScript code in browser tab context**
-
-Run arbitrary JavaScript in the browser to reproduce issues, test fixes, or query application state.
-
-**Key Features**:
-- Execute code in page context (has access to all page variables)
-- Returns execution result
-- Optional tab targeting
-- Error handling with stack traces
-
-**Common Use Cases**:
-```
-• Reproduce bugs: "Execute: document.querySelector('.submit-btn').click()"
-• Query state: "Execute: JSON.stringify(window.appState)"
-• Test fixes: "Execute: localStorage.setItem('debug', 'true')"
-• Inspect globals: "Execute: Object.keys(window)"
-```
-
-**Security Note**: Code runs with full page access. Only execute trusted code.
-
----
-
-#### `console_get_page_info`
-
-**Get page information (title, URL, optionally HTML)**
-
-Retrieve current page metadata to understand debugging context.
-
-**Key Features**:
-- Page title and URL
-- Optional full HTML dump
-- Works across all tabs
-- Lightweight (excludes HTML by default)
-
-**Common Use Cases**:
-```
-• Verify page: "What page am I on?"
-• Check URL params: "Get current page URL"
-• Inspect HTML: "Get page HTML for the checkout page"
-```
-
----
-
-#### `console_query_dom`
-
-**Query DOM elements using CSS selectors**
-
-Inspect page elements and extract properties without opening DevTools.
-
-**Key Features**:
-- Standard CSS selector syntax
-- Extract multiple properties per element
-- Returns all matching elements
-- Handles dynamic content
-
-**Common Use Cases**:
-```
-• Find errors: "Query DOM for '.error-message' and get textContent"
-• Check forms: "Query 'input[type=email]' and get value"
-• Inspect buttons: "Query '.submit-btn' and get disabled, className"
-• Count elements: "How many '.product-card' elements are there?"
-```
-
-**Default Properties** (if not specified):
-- `textContent`
-- `className`
-- `id`
-- `tagName`
+Provides working directory, project name, and suggested dev-server ports so agents can make better decisions (especially when calling `console_tabs` with `action: "suggest"`).
 
 ---
 
@@ -823,7 +500,7 @@ console-logs-mcp uses a three-component architecture for efficient real-time log
 
 | Package | Description | Key Components |
 |---------|-------------|----------------|
-| **`console-logs-mcp`** | MCP server exposing 13 tools + WebSocket server | MCP tools, WebSocket server, log storage, filter/search engines, tab suggester, session manager |
+| **`console-logs-mcp`** | MCP server exposing 6 multi-action tools + WebSocket server | MCP tools, WebSocket server, log storage, filter/search engines, tab suggester, session manager |
 | **`console-logs-mcp-extension`** | Chrome/Edge extension capturing console logs | Content script, console interceptor, WebSocket client, popup UI |
 | **`console-logs-mcp-shared`** | Shared TypeScript types and Zod schemas | LogMessage, FilterOptions, SearchOptions, TabInfo types |
 
