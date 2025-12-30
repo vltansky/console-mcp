@@ -232,6 +232,7 @@ async function tryHttpDiscovery(port: number): Promise<DiscoveryResult | null> {
     if (response.ok) {
       const payload = (await response.json()) as DiscoveryPayload;
       if (payload.identifier !== CONSOLE_MCP_IDENTIFIER) {
+        console.log(`[Background] Port ${port}: wrong identifier "${payload.identifier}"`);
         return null;
       }
 
@@ -240,8 +241,12 @@ async function tryHttpDiscovery(port: number): Promise<DiscoveryResult | null> {
       );
       return { wsUrl: payload.wsUrl, port, serverId: payload.serverId };
     }
-  } catch {
-    // ignore failed attempts
+    console.log(`[Background] Port ${port}: response not ok (${response.status})`);
+  } catch (err) {
+    // Log first few ports for debugging
+    if (port <= DISCOVERY_PORT + 2) {
+      console.log(`[Background] Port ${port}: ${err instanceof Error ? err.message : err}`);
+    }
   }
   return null;
 }
@@ -259,6 +264,14 @@ async function discoverServerUrl(): Promise<string> {
   }
 
   throw new Error('Console MCP server not found via discovery');
+}
+
+async function tryDiscoverServerUrl(): Promise<string | null> {
+  try {
+    return await discoverServerUrl();
+  } catch {
+    return null;
+  }
 }
 
 async function discoverViaHttpRange(): Promise<DiscoveryResult | null> {
@@ -326,9 +339,12 @@ async function ensureInitialized(): Promise<void> {
       lastDiscoveryPort = storedPort;
     }
 
-    // Discover server URL and initialize client
-    const wsUrl = await discoverServerUrl();
-    wsClient = new WebSocketClient({ url: wsUrl, urlResolver: discoverServerUrl });
+    // Try to discover server URL (may fail if server isn't running)
+    const wsUrl = await tryDiscoverServerUrl();
+
+    // Create client with placeholder URL - urlResolver will find the real one
+    const initialUrl = wsUrl ?? `ws://localhost:${lastDiscoveryPort ?? DISCOVERY_PORT + 1}`;
+    wsClient = new WebSocketClient({ url: initialUrl, urlResolver: discoverServerUrl });
 
     wireStatusHandler();
 
@@ -337,7 +353,7 @@ async function ensureInitialized(): Promise<void> {
       await handleServerMessage(message);
     });
 
-    // Connect to WebSocket server
+    // Connect to WebSocket server (will retry via urlResolver if initial fails)
     if (isEnabled) {
       wsClient.connect();
     }
@@ -350,16 +366,13 @@ async function ensureInitialized(): Promise<void> {
     flushPendingMessages();
     updateBadge();
     hasInitialized = true;
+
+    if (!wsUrl) {
+      console.log('[Background] Server not found during init, will retry via WebSocket client');
+    }
   })();
 
-  try {
-    await initializationPromise;
-  } catch (error) {
-    console.error('[Background] Failed to initialize:', error);
-    wsClient = null;
-    initializationPromise = null;
-    throw error;
-  }
+  await initializationPromise;
 }
 
 // Initialize extension
@@ -407,7 +420,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           connected: wsClient?.getStatus() === 'connected',
           enabled: isEnabled,
           queueLength: wsClient?.getQueueLength() || pendingMessages.length,
+          reconnectAttempts: wsClient?.getReconnectAttempts() ?? 0,
+          status: wsClient?.getStatus() ?? 'disconnected',
         });
+      });
+      return true;
+
+    case 'force_reconnect':
+      void ensureInitialized().then(() => {
+        wsClient?.forceReconnect();
+        sendResponse({ success: true });
       });
       return true;
 

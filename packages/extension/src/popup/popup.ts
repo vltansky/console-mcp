@@ -1,7 +1,7 @@
 // DOM elements
 const statusIndicator = document.getElementById('status-indicator') as HTMLElement;
 const statusText = document.getElementById('status-text') as HTMLElement;
-const statusContainer = document.getElementById('status-container') as HTMLElement;
+const statusContainer = document.getElementById('status-container') as HTMLButtonElement;
 const toggleBtn = document.getElementById('toggle-btn') as HTMLButtonElement;
 const toggleText = document.getElementById('toggle-text') as HTMLElement;
 const activeTabsEl = document.getElementById('active-tabs') as HTMLElement;
@@ -11,6 +11,8 @@ const captureErrorsCheckbox = document.getElementById(
   'capture-errors-checkbox',
 ) as HTMLInputElement;
 const clearLogsBtn = document.getElementById('clear-logs-btn') as HTMLButtonElement;
+
+let isReconnecting = false;
 
 // Classes for states
 const toggleEnabledClasses =
@@ -39,11 +41,18 @@ const statusTextClasses = {
 let cachedTabs: any[] = [];
 
 // Update status display
-function updateStatus(status: 'connected' | 'disconnected' | 'reconnecting'): void {
+function updateStatus(
+  status: 'connected' | 'disconnected' | 'reconnecting',
+  reconnectAttempts = 0,
+): void {
   statusIndicator.className = `h-2 w-2 rounded-full transition-all ${statusIndicatorClasses[status]}`;
 
+  const isOffline = status !== 'connected';
+
   if (statusContainer) {
-    statusContainer.className = `flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-colors duration-300 ${statusContainerClasses[status]}`;
+    statusContainer.className = `flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-colors duration-300 ${statusContainerClasses[status]} ${isOffline ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`;
+    statusContainer.title = isOffline ? 'Click to retry connection' : 'Connected to server';
+    statusContainer.disabled = !isOffline || isReconnecting;
   }
 
   if (statusText) {
@@ -55,10 +64,10 @@ function updateStatus(status: 'connected' | 'disconnected' | 'reconnecting'): vo
       statusText.textContent = 'Online';
       break;
     case 'disconnected':
-      statusText.textContent = 'Offline';
+      statusText.textContent = reconnectAttempts > 0 ? `Offline (#${reconnectAttempts})` : 'Offline';
       break;
     case 'reconnecting':
-      statusText.textContent = 'Connecting';
+      statusText.textContent = reconnectAttempts > 0 ? `Retry #${reconnectAttempts}` : 'Connecting';
       break;
   }
 }
@@ -74,11 +83,9 @@ async function updateStats(): Promise<void> {
       setToggleState(false);
     }
 
-    if (response.connected) {
-      updateStatus('connected');
-    } else {
-      updateStatus('disconnected');
-    }
+    const status = response.status || (response.connected ? 'connected' : 'disconnected');
+    const attempts = response.reconnectAttempts || 0;
+    updateStatus(status, attempts);
   } catch (error) {
     console.error('Failed to get status:', error);
     updateStatus('disconnected');
@@ -150,6 +157,30 @@ toggleBtn.addEventListener('click', async () => {
     await updateStats();
   } catch (error) {
     console.error('Failed to toggle:', error);
+  }
+});
+
+// Force reconnect when clicking status (only when offline)
+statusContainer.addEventListener('click', async () => {
+  if (isReconnecting) {
+    return;
+  }
+
+  try {
+    isReconnecting = true;
+    statusText.textContent = 'Retrying...';
+    statusContainer.disabled = true;
+
+    await chrome.runtime.sendMessage({ type: 'force_reconnect' });
+
+    // Wait a bit then refresh status
+    await new Promise((r) => setTimeout(r, 1000));
+    await updateStats();
+  } catch (error) {
+    console.error('Failed to reconnect:', error);
+    updateStatus('disconnected');
+  } finally {
+    isReconnecting = false;
   }
 });
 

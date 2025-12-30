@@ -39,12 +39,22 @@ export class WebSocketClient {
   }
 
   private async openConnection(): Promise<void> {
+    let url: string;
     try {
-      const url = await this.resolveUrl();
+      url = await this.resolveUrl();
       console.log(`[WebSocket] Connecting to ${url}...`);
+    } catch (error) {
+      console.warn('[WebSocket] Server discovery failed, will retry:', error);
+      this.updateStatus('disconnected');
+      this.scheduleReconnect();
+      return;
+    }
+
+    try {
       this.ws = new WebSocket(url);
     } catch (error) {
-      console.error('[WebSocket] Failed to resolve server URL:', error);
+      console.error('[WebSocket] Failed to create WebSocket:', error);
+      this.invalidateResolvedUrl();
       this.scheduleReconnect();
       return;
     }
@@ -227,5 +237,29 @@ export class WebSocketClient {
 
   getQueueLength(): number {
     return this.messageQueue.length;
+  }
+
+  getReconnectAttempts(): number {
+    return this.reconnectAttempts;
+  }
+
+  forceReconnect(): void {
+    console.log('[WebSocket] Force reconnect requested');
+
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = undefined;
+    }
+
+    this.stopHeartbeat();
+
+    if (this.ws) {
+      this.ws.close();
+      this.ws = undefined;
+    }
+
+    this.invalidateResolvedUrl();
+    this.reconnectAttempts = 0;
+    this.connect();
   }
 }
