@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 console-bridge is an MCP (Model Context Protocol) server that captures browser console logs in real-time via a browser extension and provides AI assistants with tools to query, search, and analyze these logs. The system consists of three packages in a monorepo:
 
-- **`console-bridge`**: MCP server with WebSocket server for receiving logs from browser extension
+- **`console-bridge-mcp`**: MCP server with WebSocket server for receiving logs from browser extension
 - **`console-bridge-extension`**: Chrome/Edge browser extension that captures console logs
 - **`console-bridge-shared`**: Shared TypeScript types and Zod schemas
 
@@ -16,16 +16,17 @@ console-bridge is an MCP (Model Context Protocol) server that captures browser c
 
 The server follows a modular architecture with specialized engines:
 
-- **`index.ts`**: Entry point that initializes LogStorage, ConsoleWebSocketServer, loads project skills, and starts the MCP server
-- **`mcp-server.ts`**: Core MCP server implementation exposing eight focused tools for log querying and project guidance
+- **`index.ts`**: Entry point that initializes LogStorage, ConsoleWebSocketServer, discovery server, and starts the MCP server
+- **`mcp-server.ts`**: Core MCP server implementation exposing eight tools for log querying, browser interaction, and project guidance
 - **`websocket-server.ts`**: WebSocket server (port 9847) receiving log batches from extension
 - **`log-storage.ts`**: In-memory log storage with filtering and pagination
 - **`filter-engine.ts`**: Filters logs by level, tab, URL pattern, time range, session
 - **`search-engine.ts`**: Regex and keyword search with context lines
 - **`sanitizer.ts`**: Data sanitization helper (now primarily handled inside the extension)
 - **`export-engine.ts`**: Exports logs to JSON, CSV, or plain text
-- **`session-manager.ts`**: Saves and restores log sessions
-- **`project-skills.ts`**: Scans `.console-bridge/*.md` files, parses front-matter metadata, and feeds the new `console_skills_list`/`console_skills_load` tools
+- **`discovery-server.ts`**: HTTP server for extension auto-discovery and maintenance endpoints (stats/clear/export)
+- **`tab-suggester.ts`**: Intelligent tab ranking based on URL patterns, ports, domains, and activity
+- **`project-skills.ts`**: Scans `.console-bridge/*.md` files, parses front-matter metadata, and exposes via `console_skills_list`/`console_skills_load` tools
 
 ### Extension Architecture (`packages/extension/src/`)
 
@@ -61,7 +62,7 @@ npm run dev:server
 npm run dev:extension
 
 # Start production server
-npm run start -w console-bridge
+npm run start -w console-bridge-mcp
 ```
 
 ### Testing & Linting
@@ -133,19 +134,19 @@ All messages validated with Zod schemas at runtime.
 - `sessionId`: Filter by session
 
 ### Project Skills Folder
-- Creating `.console-bridge/` in a project root allows authors to drop markdown skills with YAML front-matter (`title`, `description`, `tags`, `flow`).
-- `packages/server/src/project-skills.ts` parses these files on startup and exposes them through `console_skills_list` (metadata only) and `console_skills_load` (full markdown body). Both tools accept a `projectPath` argument when the repo lives outside the MCP server’s working directory.
-- Each skill body remains Markdown so agents can read rich guidance; flow metadata should outline recommended MCP tool sequences.
+- Creating `.console-bridge/` in a project root allows authors to drop markdown skills with YAML front-matter (`title`, `description`).
+- `packages/server/src/project-skills.ts` parses these files on demand and exposes them through `console_skills_list` (metadata only) and `console_skills_load` (full markdown body). Both tools require a `projectPath` argument.
+- Each skill body remains Markdown so agents can read rich guidance for project-specific debugging workflows.
 
 ### MCP Tools
 All eight MCP tools are defined in `mcp-server.ts`:
-- `console_tabs`, `console_logs`, `console_search`, `console_sessions`, `console_browser_info`, `console_browser_execute`, `console_snapshot`, `console_skills_list`, `console_skills_load`
+- `console_tabs`, `console_logs`, `console_search`, `console_browser_execute`, `console_browser_query`, `console_snapshot`, `console_skills_list`, `console_skills_load`
 - Tools accept JSON arguments validated against input schemas
-- Tools return text content (usually JSON stringified)
+- Tools return text content (plain text or JSON stringified)
 - Error handling returns `isError: true` with error message
 - `console_logs` and `console_search` accept `sessionScope` (`"all"` or `"current"`) to focus on the latest navigation/session per tab
-- `console_skills_list` surfaces markdown skills discovered in `.console-bridge/` and supports tag filters + optional `projectPath`; `console_skills_load` returns the markdown for a specific slug (matching `projectPath`)
-- Maintenance actions (clear/export/stats) are available via the browser extension popup, not as MCP tools
+- `console_skills_list` surfaces markdown skills discovered in `.console-bridge/` for a given `projectPath`; `console_skills_load` returns the markdown body for a specific slug
+- Maintenance actions (clear/export/stats) are available via the HTTP discovery server endpoints and browser extension popup, not as MCP tools
 
 ## Testing Strategy
 

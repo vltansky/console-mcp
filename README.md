@@ -20,12 +20,12 @@ Query console logs, execute JavaScript, and inspect DOM — all through natural 
 
 ### 1. Install Extension
 
-```bash
-git clone https://github.com/vltansky/console-bridge-mcp.git
-cd console-bridge-mcp && npm install && npm run build
-```
-
-Load in Chrome: `chrome://extensions` → Enable Developer mode → Load unpacked → Select `packages/extension/dist`
+1. Download `dev-browser-extension-*-chrome.zip` from the [latest release](https://github.com/vltansky/console-bridge-mcp/releases/latest)
+2. Unzip to a permanent location (e.g., `~/.console-bridge-extension`)
+3. Open Chrome → `chrome://extensions`
+4. Enable "Developer mode" (toggle in top right)
+5. Click "Load unpacked" → select the unzipped folder
+6. Click the extension icon in toolbar → verify it shows "Connected"
 
 ### 2. Add MCP Server
 
