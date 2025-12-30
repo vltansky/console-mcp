@@ -1,6 +1,7 @@
 import type { DiscoveryPayload, ExtensionMessage, LogMessage, TabInfo } from 'console-logs-mcp-shared';
 import { CONSOLE_MCP_IDENTIFIER } from 'console-logs-mcp-shared';
 import { WebSocketClient } from './lib/websocket-client';
+import { Sanitizer } from './lib/sanitizer';
 
 // Discovery configuration
 const DISCOVERY_PORT = 9846;
@@ -30,9 +31,11 @@ const STORAGE_KEYS = {
 
 // Extension state
 let isEnabled = true;
+let shouldSanitize = true;
 let lastDiscoveryPort: number | null = null;
 let activeTabId: number | null = null;
 let connectionStatus: 'connected' | 'disconnected' | 'reconnecting' = 'disconnected';
+const sanitizer = new Sanitizer();
 
 function tabInfoChanged(a: TabInfo, b: TabInfo): boolean {
   return (
@@ -168,7 +171,7 @@ function updateBadge(): void {
       break;
     default:
       chrome.action.setBadgeText({ text: '!' });
-      chrome.action.setBadgeBackgroundColor({ color: '#EF4444' });
+      chrome.action.setBadgeBackgroundColor({ color: '#9CA3AF' });
       break;
   }
 }
@@ -298,6 +301,14 @@ async function ensureInitialized(): Promise<void> {
     ]);
 
     isEnabled = settings[STORAGE_KEYS.ENABLED] !== false;
+    // Default sanitize to true (nullish coalescing: undefined/null -> true)
+    shouldSanitize = settings[STORAGE_KEYS.SANITIZE] ?? true;
+
+    // Persist default to storage if not already set
+    if (settings[STORAGE_KEYS.SANITIZE] === undefined) {
+      await chrome.storage.local.set({ [STORAGE_KEYS.SANITIZE]: true });
+    }
+
     const storedPort = settings[STORAGE_KEYS.LAST_DISCOVERY_PORT];
     if (typeof storedPort === 'number' && Number.isFinite(storedPort)) {
       lastDiscoveryPort = storedPort;
@@ -353,6 +364,13 @@ chrome.runtime.onStartup.addListener(() => {
 
 // Initialize immediately when service worker loads
 void ensureInitialized();
+
+// Listen for storage changes (e.g., when user toggles sanitize in popup)
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && changes[STORAGE_KEYS.SANITIZE]) {
+    shouldSanitize = changes[STORAGE_KEYS.SANITIZE].newValue ?? true;
+  }
+});
 
 // Handle messages from content scripts and popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -478,10 +496,15 @@ function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender)
   }
 
   // Ensure the log has the correct tab ID
-  const logWithTabId: LogMessage = {
+  let logWithTabId: LogMessage = {
     ...log,
     tabId,
   };
+
+  // Sanitize if enabled
+  if (shouldSanitize) {
+    logWithTabId = sanitizer.sanitize(logWithTabId);
+  }
 
   // Send to WebSocket server
   sendOrQueue({

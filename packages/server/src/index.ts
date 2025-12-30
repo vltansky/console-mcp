@@ -10,7 +10,7 @@ const parsedLogTtl = logTtlMinutesRaw ? Number.parseInt(logTtlMinutesRaw) : 60;
 const config = {
   wsPort: Number.parseInt(process.env.CONSOLE_MCP_PORT || '9847'),
   maxLogs: Number.parseInt(process.env.CONSOLE_MCP_MAX_LOGS || '10000'),
-  sanitizeLogs: process.env.CONSOLE_MCP_SANITIZE_LOGS === 'true',
+  sanitizeLogs: false, // Sanitization is controlled by the extension, not the server
   discoveryPort: Number.parseInt(process.env.CONSOLE_MCP_DISCOVERY_PORT || '9846'),
   logTtlMinutes: Number.isFinite(parsedLogTtl) ? parsedLogTtl : 60,
 };

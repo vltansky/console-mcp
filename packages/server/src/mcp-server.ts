@@ -147,7 +147,7 @@ export class McpServer {
               sanitize: {
                 type: 'boolean',
                 default: false,
-                description: 'Mask sensitive data (list/get)',
+                description: 'Deprecated: Sanitization is controlled by the extension. This parameter has no effect.',
               },
               includeArgs: {
                 type: 'boolean',
@@ -558,10 +558,8 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
     const limit = args.limit || 50;
     logs = logs.slice(offset, offset + limit);
 
-    // Sanitize if requested
-    if (args.sanitize) {
-      logs = this.sanitizer.sanitizeMultiple(logs);
-    }
+    // Sanitization is handled by the extension, not the server
+    // This parameter is kept for backward compatibility but has no effect
 
     // By default, exclude args and stack (minimal response)
     // User can opt-in to include them
@@ -651,7 +649,8 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
       if (!args?.logId) {
         throw new Error('Missing logId for console_logs action=get');
       }
-      return this.handleGetLog({ id: args.logId, sanitize: args.sanitize });
+      // Sanitization is handled by the extension
+      return this.handleGetLog({ id: args.logId, sanitize: false });
     }
 
     if (action === 'tail') {
@@ -670,6 +669,7 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
       });
     }
 
+    // Sanitization is handled by the extension
     return this.handleListLogs({
       levels: args.levels,
       tabId: args.tabId,
@@ -679,7 +679,7 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
       sessionId: this.resolveSessionIdForScope(sessionScope, args.tabId),
       limit: args.limit,
       offset: args.offset,
-      sanitize: args.sanitize,
+      sanitize: false,
       includeArgs: args.includeArgs,
       includeStack: args.includeStack,
     });
@@ -982,9 +982,8 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
       throw new Error(`Log not found: ${args.id}`);
     }
 
-    if (args.sanitize) {
-      log = this.sanitizer.sanitize(log);
-    }
+    // Sanitization is handled by the extension, not the server
+    // This parameter is kept for backward compatibility but has no effect
 
     return {
       content: [

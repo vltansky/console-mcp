@@ -1,32 +1,64 @@
 // DOM elements
 const statusIndicator = document.getElementById('status-indicator') as HTMLElement;
 const statusText = document.getElementById('status-text') as HTMLElement;
+const statusContainer = document.getElementById('status-container') as HTMLElement;
 const toggleBtn = document.getElementById('toggle-btn') as HTMLButtonElement;
 const toggleText = document.getElementById('toggle-text') as HTMLElement;
-const totalLogsEl = document.getElementById('total-logs') as HTMLElement;
 const activeTabsEl = document.getElementById('active-tabs') as HTMLElement;
 const tabsList = document.getElementById('tabs-list') as HTMLElement;
+const refreshTabsBtn = document.getElementById('refresh-tabs-btn') as HTMLButtonElement;
 const sanitizeCheckbox = document.getElementById('sanitize-checkbox') as HTMLInputElement;
 const captureErrorsCheckbox = document.getElementById(
   'capture-errors-checkbox',
 ) as HTMLInputElement;
-const clearBtn = document.getElementById('clear-btn') as HTMLButtonElement;
-const exportJsonBtn = document.getElementById('export-json-btn') as HTMLButtonElement;
-const maintenanceStatsEl = document.getElementById('maintenance-stats') as HTMLElement;
+
+// Classes for states
+const toggleEnabledClasses =
+  'bg-accent-sky text-white shadow-lg shadow-accent-sky/20 hover:bg-accent-sky/90 border-transparent';
+const toggleDisabledClasses =
+  'bg-ink-800 text-ink-400 hover:bg-ink-700 hover:text-ink-200 border-transparent';
+
+const statusIndicatorClasses = {
+  connected: 'bg-accent-mint shadow-[0_0_8px_rgba(52,211,153,0.6)]',
+  disconnected: 'bg-accent-rose shadow-[0_0_8px_rgba(251,113,133,0.6)]',
+  reconnecting: 'bg-accent-amber shadow-[0_0_8px_rgba(251,191,36,0.6)]',
+} as const;
+
+const statusContainerClasses = {
+  connected: 'border-accent-mint/20 bg-accent-mint/5',
+  disconnected: 'border-accent-rose/20 bg-accent-rose/5',
+  reconnecting: 'border-accent-amber/20 bg-accent-amber/5',
+} as const;
+
+const statusTextClasses = {
+  connected: 'text-accent-mint',
+  disconnected: 'text-accent-rose',
+  reconnecting: 'text-accent-amber',
+} as const;
+
+let cachedTabs: any[] = [];
 
 // Update status display
 function updateStatus(status: 'connected' | 'disconnected' | 'reconnecting'): void {
-  statusIndicator.className = `status-indicator ${status}`;
+  statusIndicator.className = `h-2 w-2 rounded-full transition-all ${statusIndicatorClasses[status]}`;
+
+  if (statusContainer) {
+    statusContainer.className = `flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-colors duration-300 ${statusContainerClasses[status]}`;
+  }
+
+  if (statusText) {
+    statusText.className = `text-[10px] font-medium uppercase tracking-wider ${statusTextClasses[status]}`;
+  }
 
   switch (status) {
     case 'connected':
-      statusText.textContent = 'Connected';
+      statusText.textContent = 'Online';
       break;
     case 'disconnected':
-      statusText.textContent = 'Disconnected';
+      statusText.textContent = 'Offline';
       break;
     case 'reconnecting':
-      statusText.textContent = 'Reconnecting...';
+      statusText.textContent = 'Connecting';
       break;
   }
 }
@@ -37,11 +69,9 @@ async function updateStats(): Promise<void> {
     const response = await chrome.runtime.sendMessage({ type: 'get_status' });
 
     if (response.enabled) {
-      toggleBtn.classList.remove('disabled');
-      toggleText.textContent = 'Disable';
+      setToggleState(true);
     } else {
-      toggleBtn.classList.add('disabled');
-      toggleText.textContent = 'Enable';
+      setToggleState(false);
     }
 
     if (response.connected) {
@@ -51,41 +81,63 @@ async function updateStats(): Promise<void> {
     }
   } catch (error) {
     console.error('Failed to get status:', error);
+    updateStatus('disconnected');
   }
+}
+
+function setToggleState(enabled: boolean): void {
+  toggleText.textContent = enabled ? 'Capture Enabled' : 'Capture Disabled';
+  toggleBtn.className = `flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all duration-200 ${enabled ? toggleEnabledClasses : toggleDisabledClasses}`;
+}
+
+function renderTabs(): void {
+  if (!tabsList) {
+    return;
+  }
+  if (cachedTabs.length === 0) {
+    tabsList.innerHTML = `
+      <div class="flex flex-col items-center justify-center h-full text-ink-500 gap-2 py-4">
+        <span class="text-xs">No active tabs connected</span>
+      </div>`;
+    return;
+  }
+
+  tabsList.innerHTML = cachedTabs
+    .map(
+      (tab: any) => `
+        <div class="group flex items-center justify-between p-2.5 rounded-lg border border-transparent hover:bg-ink-800/50 hover:border-ink-800 transition-all cursor-default">
+          <div class="flex-1 min-w-0 pr-3">
+            <div class="flex items-center gap-2 mb-0.5">
+               <div class="font-medium text-xs text-ink-100 truncate" title="${escapeHtml(tab.title || 'Untitled')}">${escapeHtml(tab.title || 'Untitled')}</div>
+               ${
+                 tab.isActive
+                   ? '<span class="h-1.5 w-1.5 rounded-full bg-accent-mint shadow-[0_0_6px_rgba(52,211,153,0.6)]" title="Active"></span>'
+                   : ''
+               }
+            </div>
+            <div class="text-[10px] text-ink-500 truncate font-mono" title="${escapeHtml(tab.url || '')}">${escapeHtml(tab.url || '')}</div>
+          </div>
+          <div class="flex flex-col items-end gap-0.5">
+            <span class="text-xs font-bold text-ink-200">${tab.logCount || 0}</span>
+            <span class="text-[9px] uppercase tracking-wider text-ink-600">Logs</span>
+          </div>
+        </div>
+      `,
+    )
+    .join('');
 }
 
 // Update tabs list
 async function updateTabs(): Promise<void> {
   try {
     const response = await chrome.runtime.sendMessage({ type: 'get_tabs' });
-    const tabs = response.tabs || [];
+    cachedTabs = response.tabs || [];
 
-    activeTabsEl.textContent = tabs.length.toString();
-
-    let totalLogs = 0;
-    for (const tab of tabs) {
-      totalLogs += tab.logCount || 0;
+    if (activeTabsEl) {
+        activeTabsEl.textContent = cachedTabs.length.toString();
     }
-    totalLogsEl.textContent = totalLogs.toString();
 
-    // Render tabs
-    if (tabs.length === 0) {
-      tabsList.innerHTML = '<p class="empty-state">No active tabs</p>';
-    } else {
-      tabsList.innerHTML = tabs
-        .map(
-          (tab: any) => `
-        <div class="tab-item">
-          <div class="tab-info">
-            <div class="tab-title">${escapeHtml(tab.title || 'Untitled')}</div>
-            <div class="tab-url">${escapeHtml(tab.url || '')}</div>
-          </div>
-          <div class="tab-logs">${tab.logCount || 0} logs</div>
-        </div>
-      `,
-        )
-        .join('');
-    }
+    renderTabs();
   } catch (error) {
     console.error('Failed to get tabs:', error);
   }
@@ -101,70 +153,6 @@ toggleBtn.addEventListener('click', async () => {
   }
 });
 
-async function refreshMaintenanceStats(): Promise<void> {
-  try {
-    maintenanceStatsEl.innerHTML = '<p class="empty-state">Loading…</p>';
-    const stats = await chrome.runtime.sendMessage({ type: 'maintenance_stats' });
-    if (!stats || stats.error) {
-      throw new Error(stats?.error || 'No stats returned');
-    }
-    const rows = [
-      { label: 'Total Logs', value: stats.totalLogs },
-      { label: 'Active Tabs (server)', value: stats.activeTabs },
-      { label: 'Sessions Saved', value: stats.sessions },
-    ];
-
-    maintenanceStatsEl.innerHTML = rows
-      .map(
-        (row) => `
-        <div class="maintenance-row">
-          <span>${row.label}</span>
-          <span>${row.value}</span>
-        </div>
-      `,
-      )
-      .join('');
-  } catch (error) {
-    console.error('Failed to fetch maintenance stats:', error);
-    maintenanceStatsEl.innerHTML = '<p class="empty-state">Failed to load</p>';
-  }
-}
-
-clearBtn.addEventListener('click', async () => {
-  if (!confirm('Clear all stored console logs?')) {
-    return;
-  }
-  clearBtn.disabled = true;
-  try {
-    await chrome.runtime.sendMessage({ type: 'maintenance_clear' });
-    await Promise.all([updateTabs(), refreshMaintenanceStats()]);
-  } catch (error) {
-    console.error('Failed to clear logs:', error);
-    alert('Failed to clear logs. Check server status.');
-  } finally {
-    clearBtn.disabled = false;
-  }
-});
-
-exportJsonBtn.addEventListener('click', async () => {
-  exportJsonBtn.disabled = true;
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'maintenance_export',
-      format: 'json',
-    });
-    if (!response || !response.data) {
-      throw new Error('Invalid export response');
-    }
-    downloadText(`console-logs-${Date.now()}.json`, response.data, 'application/json');
-  } catch (error) {
-    console.error('Failed to export logs:', error);
-    alert('Failed to export logs. Check server status.');
-  } finally {
-    exportJsonBtn.disabled = false;
-  }
-});
-
 // Load settings
 async function loadSettings(): Promise<void> {
   const settings = await chrome.storage.local.get([
@@ -172,7 +160,14 @@ async function loadSettings(): Promise<void> {
     'console_mcp_capture_errors',
   ]);
 
-  sanitizeCheckbox.checked = settings.console_mcp_sanitize || false;
+  // Default sanitize to true (nullish coalescing: undefined/null -> true)
+  sanitizeCheckbox.checked = settings.console_mcp_sanitize ?? true;
+
+  // Persist default to storage if not already set
+  if (settings.console_mcp_sanitize === undefined) {
+    await chrome.storage.local.set({ console_mcp_sanitize: true });
+  }
+
   captureErrorsCheckbox.checked = settings.console_mcp_capture_errors !== false;
 }
 
@@ -189,6 +184,23 @@ captureErrorsCheckbox.addEventListener('change', async () => {
   });
 });
 
+if (refreshTabsBtn) {
+  refreshTabsBtn.addEventListener('click', async () => {
+    refreshTabsBtn.disabled = true;
+    const icon = refreshTabsBtn.querySelector('svg');
+    if(icon) icon.classList.add('animate-spin');
+
+    try {
+      await updateTabs();
+    } finally {
+      setTimeout(() => {
+        refreshTabsBtn.disabled = false;
+        if(icon) icon.classList.remove('animate-spin');
+      }, 400);
+    }
+  });
+}
+
 // Escape HTML to prevent XSS
 function escapeHtml(text: string): string {
   const div = document.createElement('div');
@@ -196,30 +208,16 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
-function downloadText(filename: string, content: string, mimeType: string): void {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
-
 // Initialize
 async function init(): Promise<void> {
   await loadSettings();
   await updateStats();
   await updateTabs();
-  await refreshMaintenanceStats();
 
   // Refresh periodically
   setInterval(() => {
     updateStats();
     updateTabs();
-    refreshMaintenanceStats();
   }, 2000);
 }
 

@@ -3,71 +3,91 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>console-logs-mcp</title>
+    <title>Console Bridge</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
-  <body>
-    <div class="container">
-      <header>
-        <h1>console-logs-mcp</h1>
-        <div class="status">
-          <span class="status-indicator" id="status-indicator">●</span>
-          <span class="status-text" id="status-text">Connecting...</span>
+  <body class="bg-ink-950 text-ink-50 font-sans antialiased min-h-[400px] w-[340px] selection:bg-accent-sky/30 selection:text-white">
+    <div class="p-4 flex flex-col gap-4 h-full">
+
+      <!-- Header -->
+      <header class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="h-8 w-8 rounded-lg bg-gradient-to-br from-accent-sky to-accent-indigo flex items-center justify-center shadow-lg shadow-accent-sky/20">
+            <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <div>
+            <h1 class="font-bold text-base leading-tight tracking-tight">Console Bridge</h1>
+            <p class="text-[10px] text-ink-400 font-medium tracking-wide">MCP EXTENSION</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+           <div id="status-container" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-ink-900 border border-ink-800">
+             <span id="status-indicator" class="h-2 w-2 rounded-full bg-ink-600 transition-colors duration-300"></span>
+             <span id="status-text" class="text-[10px] font-medium text-ink-300 uppercase tracking-wider">Offline</span>
+           </div>
         </div>
       </header>
 
-      <section class="controls">
-        <button id="toggle-btn" class="btn btn-primary">
-          <span id="toggle-text">Disable</span>
+      <!-- Main Toggle -->
+      <div class="bg-ink-900/50 rounded-xl p-1 border border-ink-800/50 flex">
+        <button id="toggle-btn" class="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all duration-200">
+          <span id="toggle-text">Enable Capture</span>
         </button>
-      </section>
+      </div>
 
-      <section class="stats">
-        <div class="stat-item">
-          <span class="stat-label">Total Logs:</span>
-          <span class="stat-value" id="total-logs">0</span>
+      <!-- Active Tabs -->
+      <div class="flex flex-col gap-2 flex-1 min-h-0">
+        <div class="flex items-center justify-between px-1">
+          <h2 class="text-xs font-semibold text-ink-300 uppercase tracking-wider flex items-center gap-2">
+            Active Tabs
+            <span id="active-tabs" class="bg-ink-800 text-ink-300 text-[10px] px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">0</span>
+          </h2>
+          <button id="refresh-tabs-btn" class="p-1.5 text-ink-400 hover:text-white hover:bg-ink-800 rounded-md transition-colors" title="Refresh">
+             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+             </svg>
+          </button>
         </div>
-        <div class="stat-item">
-          <span class="stat-label">Active Tabs:</span>
-          <span class="stat-value" id="active-tabs">0</span>
-        </div>
-      </section>
 
-      <section class="tabs-section">
-        <h2>Active Tabs</h2>
-        <div id="tabs-list" class="tabs-list">
-          <p class="empty-state">No active tabs</p>
+        <div id="tabs-list" class="flex-1 overflow-y-auto min-h-[140px] space-y-1 pr-1 custom-scrollbar">
+          <!-- Populated by JS -->
+          <div class="flex flex-col items-center justify-center h-full text-ink-500 gap-2">
+            <span class="text-xs">No active tabs connected</span>
+          </div>
         </div>
-      </section>
+      </div>
 
-      <section class="maintenance">
-        <h2>Maintenance</h2>
-        <div class="maintenance-buttons">
-          <button id="clear-btn" class="btn btn-secondary">Clear Logs</button>
-          <button id="export-json-btn" class="btn btn-secondary">Download JSON</button>
+      <!-- Settings -->
+      <div class="border-t border-ink-800/50 pt-3 mt-auto">
+        <div class="flex items-center justify-between px-1">
+          <label class="flex items-center gap-2 cursor-pointer group">
+            <div class="relative inline-flex items-center">
+              <input type="checkbox" id="sanitize-checkbox" class="sr-only peer">
+              <div class="w-7 h-4 bg-ink-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-accent-sky"></div>
+            </div>
+            <span class="text-xs text-ink-400 font-medium group-hover:text-ink-300 transition-colors">Sanitize Data</span>
+          </label>
+
+          <label class="flex items-center gap-2 cursor-pointer group">
+             <span class="text-xs text-ink-400 font-medium group-hover:text-ink-300 transition-colors">Capture Errors</span>
+             <div class="relative inline-flex items-center">
+              <input type="checkbox" id="capture-errors-checkbox" class="sr-only peer">
+              <div class="w-7 h-4 bg-ink-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-accent-mint"></div>
+            </div>
+          </label>
         </div>
-        <div class="maintenance-stats" id="maintenance-stats">
-          <p class="empty-state">Loading…</p>
-        </div>
-      </section>
 
-      <section class="settings">
-        <h2>Settings</h2>
-        <label class="checkbox-label">
-          <input type="checkbox" id="sanitize-checkbox" />
-          <span>Sanitize sensitive data</span>
-        </label>
-        <label class="checkbox-label">
-          <input type="checkbox" id="capture-errors-checkbox" checked />
-          <span>Capture unhandled errors</span>
-        </label>
-      </section>
+      </div>
 
-      <footer>
-        <p class="version">v0.1.0</p>
-      </footer>
+      <!-- Footer Info -->
+      <div class="text-[10px] text-center text-ink-600 font-medium pt-1">
+         v0.1.0 • Connected to MCP Server
+      </div>
+
     </div>
-
     <script type="module" src="popup.js"></script>
   </body>
 </html>
