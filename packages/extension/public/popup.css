@@ -206,6 +206,40 @@ h2 {
 }
 
 /* Settings */
+.maintenance {
+  margin-bottom: 16px;
+}
+
+.maintenance-buttons {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.maintenance-stats {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 8px;
+  background: #f9fafb;
+}
+
+.maintenance-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid #eceff2;
+}
+
+.maintenance-row:last-child {
+  border-bottom: none;
+}
+
+.maintenance-row span:last-child {
+  font-weight: 500;
+  color: #111827;
+}
+
 .settings {
   margin-bottom: 16px;
 }

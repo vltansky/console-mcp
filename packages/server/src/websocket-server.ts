@@ -125,6 +125,10 @@ export class ConsoleWebSocketServer {
         this.tabs.set(message.data.id, message.data);
         break;
 
+      case 'tab_updated':
+        this.tabs.set(message.data.id, message.data);
+        break;
+
       case 'tab_closed':
         this.tabs.delete(message.data.tabId);
         break;

@@ -34,6 +34,83 @@ let lastDiscoveryPort: number | null = null;
 let activeTabId: number | null = null;
 let connectionStatus: 'connected' | 'disconnected' | 'reconnecting' = 'disconnected';
 
+function tabInfoChanged(a: TabInfo, b: TabInfo): boolean {
+  return (
+    a.url !== b.url ||
+    a.title !== b.title ||
+    a.sessionId !== b.sessionId ||
+    a.isActive !== b.isActive ||
+    a.lastNavigationAt !== b.lastNavigationAt
+  );
+}
+
+function sendTabEvent(type: 'tab_opened' | 'tab_updated', tabInfo: TabInfo): void {
+  sendOrQueue({
+    type,
+    data: tabInfo,
+  });
+}
+
+function createTabEntry(tabId: number, senderTab: chrome.tabs.Tab | undefined, sessionId: string): TabInfo {
+  const tabInfo: TabInfo = {
+    id: tabId,
+    url: senderTab?.url || '',
+    title: senderTab?.title || '',
+    sessionId,
+    isActive: senderTab?.active ?? activeTabId === tabId,
+    lastNavigationAt: Date.now(),
+  };
+  tabs.set(tabId, tabInfo);
+  sendTabEvent('tab_opened', tabInfo);
+  if (tabInfo.isActive) {
+    setActiveTabId(tabId);
+  }
+  return tabInfo;
+}
+
+function updateTrackedTab(tabId: number, updates: Partial<TabInfo>): void {
+  const current = tabs.get(tabId);
+  if (!current) {
+    return;
+  }
+
+  const next: TabInfo = {
+    ...current,
+    ...updates,
+  };
+
+  if (updates.sessionId && updates.sessionId !== current.sessionId && !updates.lastNavigationAt) {
+    next.lastNavigationAt = Date.now();
+  }
+
+  if (!tabInfoChanged(current, next)) {
+    return;
+  }
+
+  tabs.set(tabId, next);
+  sendTabEvent('tab_updated', next);
+}
+
+function setActiveTabId(tabId: number | null): void {
+  if (activeTabId === tabId) {
+    updateBadge();
+    return;
+  }
+
+  const previous = activeTabId;
+  activeTabId = tabId;
+
+  if (previous !== null) {
+    updateTrackedTab(previous, { isActive: false });
+  }
+
+  if (tabId !== null) {
+    updateTrackedTab(tabId, { isActive: true });
+  }
+
+  updateBadge();
+}
+
 function enqueueMessage(message: ExtensionMessage): void {
   pendingMessages.push(message);
 }
@@ -76,24 +153,50 @@ function updateBadge(): void {
 
   if (logCount > 0) {
     chrome.action.setBadgeText({ text: formatLogCount(logCount) });
-    chrome.action.setBadgeBackgroundColor({ color: '#EF4444' });
+    chrome.action.setBadgeBackgroundColor({ color: '#4B5563' });
     return;
   }
 
   switch (connectionStatus) {
     case 'connected':
       chrome.action.setBadgeText({ text: '' });
-      chrome.action.setBadgeBackgroundColor({ color: '#10B981' });
+      chrome.action.setBadgeBackgroundColor({ color: '#9CA3AF' });
       break;
     case 'reconnecting':
       chrome.action.setBadgeText({ text: '...' });
-      chrome.action.setBadgeBackgroundColor({ color: '#F59E0B' });
+      chrome.action.setBadgeBackgroundColor({ color: '#A3A3A3' });
       break;
     default:
       chrome.action.setBadgeText({ text: '!' });
       chrome.action.setBadgeBackgroundColor({ color: '#EF4444' });
       break;
   }
+}
+
+async function callMaintenanceEndpoint(path: string, options?: { method?: string; body?: unknown }) {
+  await ensureInitialized();
+  const port = lastDiscoveryPort ?? DISCOVERY_PORT;
+  const url = `http://localhost:${port}${path}`;
+
+  const response = await fetch(url, {
+    method: options?.method ?? 'GET',
+    headers: options?.body
+      ? {
+          'Content-Type': 'application/json',
+        }
+      : undefined,
+    body: options?.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Maintenance request failed (${response.status})`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return response.json();
+  }
+  return response.text();
 }
 
 interface DiscoveryResult {
@@ -295,41 +398,89 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ tabs: tabStats });
       });
       return true;
+
+    case 'maintenance_clear':
+      void (async () => {
+        try {
+          await callMaintenanceEndpoint('/maintenance/clear', { method: 'POST', body: {} });
+          sendResponse({ success: true });
+        } catch (error) {
+          sendResponse({ error: error instanceof Error ? error.message : String(error) });
+        }
+      })();
+      return true;
+
+    case 'maintenance_stats':
+      void (async () => {
+        try {
+          const stats = await callMaintenanceEndpoint('/maintenance/stats');
+          sendResponse(stats);
+        } catch (error) {
+          sendResponse({ error: error instanceof Error ? error.message : String(error) });
+        }
+      })();
+      return true;
+
+    case 'maintenance_export':
+      void (async () => {
+        try {
+          const format = message.format || 'json';
+          const data = await callMaintenanceEndpoint('/maintenance/export', {
+            method: 'POST',
+            body: { format },
+          });
+          sendResponse({ data, format });
+        } catch (error) {
+          sendResponse({ error: error instanceof Error ? error.message : String(error) });
+        }
+      })();
+      return true;
   }
 });
 
 function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender): void {
-  if (!sender.tab?.id) {
+  const tabId = sender.tab?.id;
+  if (!tabId) {
     return;
   }
 
-  // Update tab info if not tracked
-  if (!tabs.has(sender.tab.id)) {
-    const tabInfo: TabInfo = {
-      id: sender.tab.id,
-      url: sender.tab.url || '',
-      title: sender.tab.title || '',
-      sessionId: log.sessionId,
-    };
-    tabs.set(sender.tab.id, tabInfo);
+  const existingTab = tabs.get(tabId);
 
-    // Notify server about new tab
-    sendOrQueue({
-      type: 'tab_opened',
-      data: tabInfo,
-    });
+  if (!existingTab) {
+    createTabEntry(tabId, sender.tab, log.sessionId);
+  } else {
+    const updates: Partial<TabInfo> = {};
+
+    if (sender.tab?.url && sender.tab.url !== existingTab.url) {
+      updates.url = sender.tab.url;
+    }
+
+    if (sender.tab?.title && sender.tab.title !== existingTab.title) {
+      updates.title = sender.tab.title;
+    }
+
+    if (existingTab.sessionId !== log.sessionId) {
+      updates.sessionId = log.sessionId;
+      updates.lastNavigationAt = Date.now();
+    }
+
+    updateTrackedTab(tabId, updates);
+  }
+
+  if (sender.tab?.active) {
+    setActiveTabId(tabId);
   }
 
   // Update log count
-  tabLogCounts.set(sender.tab.id, (tabLogCounts.get(sender.tab.id) || 0) + 1);
-  if (activeTabId === sender.tab.id) {
+  tabLogCounts.set(tabId, (tabLogCounts.get(tabId) || 0) + 1);
+  if (activeTabId === tabId) {
     updateBadge();
   }
 
   // Ensure the log has the correct tab ID
   const logWithTabId: LogMessage = {
     ...log,
-    tabId: sender.tab.id,
+    tabId,
   };
 
   // Send to WebSocket server
@@ -397,33 +548,39 @@ chrome.tabs.onRemoved.addListener((tabId) => {
       type: 'tab_closed',
       data: { tabId },
     });
-
-    tabs.delete(tabId);
-    tabLogCounts.delete(tabId);
   }
 
   if (activeTabId === tabId) {
-    activeTabId = null;
-    updateBadge();
+    setActiveTabId(null);
   }
+
+  tabs.delete(tabId);
+  tabLogCounts.delete(tabId);
 });
 
 // Handle tab updates
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.url && tabs.has(tabId)) {
-    const tabInfo: TabInfo = {
-      id: tabId,
-      url: tab.url || '',
-      title: tab.title || '',
-      sessionId: tabs.get(tabId)?.sessionId || crypto.randomUUID(),
-    };
-    tabs.set(tabId, tabInfo);
+  if (!tabs.has(tabId)) {
+    return;
+  }
+
+  const updates: Partial<TabInfo> = {};
+
+  if (changeInfo.url) {
+    updates.url = tab.url || '';
+  }
+
+  if (changeInfo.title) {
+    updates.title = tab.title || '';
+  }
+
+  if (Object.keys(updates).length > 0) {
+    updateTrackedTab(tabId, updates);
   }
 });
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
-  activeTabId = activeInfo.tabId;
-  updateBadge();
+  setActiveTabId(activeInfo.tabId);
 });
 
 // WebSocket status updates

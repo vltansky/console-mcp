@@ -134,13 +134,9 @@ export class McpServer {
                 type: 'string',
                 description: 'Relative/absolute end time (list action)',
               },
-              sessionId: {
-                type: 'string',
-                description: 'Session filter (list action)',
-              },
               limit: {
                 type: 'number',
-                default: 100,
+                default: 50,
                 description: 'Page size for list action',
               },
               offset: {
@@ -163,6 +159,13 @@ export class McpServer {
                 default: false,
                 description: 'Include stack traces (list action)',
               },
+              sessionScope: {
+                type: 'string',
+                enum: ['all', 'current'],
+                default: 'all',
+                description:
+                  'Use "current" to limit results to the latest navigation/session for the selected tab (requires tabId).',
+              },
               // get arguments
               logId: {
                 type: 'string',
@@ -173,10 +176,6 @@ export class McpServer {
                 type: 'boolean',
                 default: true,
                 description: 'Follow new logs when action = tail',
-              },
-              filter: {
-                type: 'object',
-                description: 'Filter payload reused for list/tail actions',
               },
               lines: {
                 type: 'number',
@@ -223,12 +222,39 @@ export class McpServer {
               },
               limit: {
                 type: 'number',
-                default: 100,
+                default: 50,
                 description: 'Maximum results',
               },
-              filter: {
-                type: 'object',
-                description: 'Filter payload shared across modes',
+              levels: {
+                type: 'array',
+                items: {
+                  type: 'string',
+                  enum: ['log', 'info', 'warn', 'error', 'debug'],
+                },
+                description: 'Optional log-level filter',
+              },
+              tabId: {
+                type: 'number',
+                description: 'Target tab ID when scoping search',
+              },
+              urlPattern: {
+                type: 'string',
+                description: 'URL regex filter',
+              },
+              after: {
+                type: 'string',
+                description: 'Relative/absolute start time',
+              },
+              before: {
+                type: 'string',
+                description: 'Relative/absolute end time',
+              },
+              sessionScope: {
+                type: 'string',
+                enum: ['all', 'current'],
+                default: 'all',
+                description:
+                  'Set to "current" to reuse only the latest navigation/session for the target tab (requires tabId).',
               },
               includeArgs: {
                 type: 'boolean',
@@ -291,80 +317,75 @@ export class McpServer {
           },
         },
         {
-          name: 'console_maintenance',
-          description: 'Clear logs, export data, or fetch aggregate stats in one tool.',
+          name: 'console_browser_info',
+          description: 'Get current page title/URL (and optional HTML) for a tab.',
           inputSchema: {
             type: 'object',
             properties: {
-              action: {
-                type: 'string',
-                enum: ['clear', 'export', 'stats'],
-                default: 'stats',
-                description: 'Maintenance action',
-              },
               tabId: {
                 type: 'number',
-                description: 'Target tab when clearing logs',
+                description: 'Target tab (defaults to active tab when omitted)',
               },
-              before: {
-                type: 'string',
-                description: 'Timestamp when clearing logs',
-              },
-              format: {
-                type: 'string',
-                enum: ['json', 'csv', 'txt'],
-                description: 'Export format when action = export',
-              },
-              fields: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'Fields to include when exporting',
-              },
-              prettyPrint: {
+              includeHtml: {
                 type: 'boolean',
                 default: false,
-                description: 'Pretty print JSON export',
-              },
-              filter: {
-                type: 'object',
-                description: 'Filters when exporting data',
+                description: 'Include full HTML dump (use sparingly to save tokens)',
               },
             },
           },
         },
         {
-          name: 'console_browser',
-          description: 'Execute JS, fetch page info, or query DOM from a single surface.',
+          name: 'console_browser_execute',
+          description: 'Run JavaScript in the page context or query DOM nodes.',
           inputSchema: {
             type: 'object',
             properties: {
-              action: {
+              mode: {
                 type: 'string',
-                enum: ['execute_js', 'page_info', 'query_dom'],
-                default: 'page_info',
-                description: 'Browser action to perform',
+                enum: ['execute_js', 'query_dom'],
+                default: 'execute_js',
+                description: 'Select raw JS execution or DOM query mode',
               },
               code: {
                 type: 'string',
-                description: 'JavaScript string when action = execute_js',
-              },
-              tabId: {
-                type: 'number',
-                description: 'Target tab (all actions optional)',
-              },
-              includeHtml: {
-                type: 'boolean',
-                default: false,
-                description: 'Include HTML when requesting page info',
+                description: 'JavaScript snippet to execute when mode = execute_js',
               },
               selector: {
                 type: 'string',
-                description: 'CSS selector when action = query_dom',
+                description: 'CSS selector when mode = query_dom',
               },
               properties: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'DOM properties to extract when querying DOM',
+                description: 'DOM properties to extract (query mode)',
+              },
+              tabId: {
+                type: 'number',
+                description: 'Target tab (defaults to active tab)',
+              },
+            },
+          },
+        },
+        {
+          name: 'console_snapshot',
+          description: 'Quick digest of recent console activity (top errors, warnings, trends).',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              window: {
+                type: 'string',
+                enum: ['1m', '5m', '15m'],
+                default: '5m',
+                description: 'Time window for snapshot (e.g., last 5 minutes)',
+              },
+              tabId: {
+                type: 'number',
+                description: 'Optional tab to scope the snapshot',
+              },
+              includeExamples: {
+                type: 'boolean',
+                default: false,
+                description: 'Include sample log IDs/messages for each section',
               },
             },
           },
@@ -375,43 +396,8 @@ export class McpServer {
     // List available resources
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
       resources: [
-        {
-          uri: 'console://context',
-          name: 'Project Context',
-          description: 'Current project context including working directory and environment',
-          mimeType: 'application/json',
-        },
-      ],
-    }));
-
-    // Handle resource reads
-    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-      if (request.params.uri === 'console://context') {
-        const cwd = process.cwd();
-        const projectName = cwd.split(/[/\\]/).pop() || 'unknown';
-        const commonPorts = this.tabSuggester.detectCommonPorts(cwd);
-
-        return {
-          contents: [
-            {
-              uri: 'console://context',
-              mimeType: 'application/json',
-              text: JSON.stringify(
-                {
-                  workingDirectory: cwd,
-                  projectName,
-                  suggestedPorts: commonPorts,
-                  timestamp: Date.now(),
-                },
-                null,
-                2,
-              ),
-            },
-          ],
-        };
-      }
-      throw new Error(`Unknown resource: ${request.params.uri}`);
-    });
+        ],
+      }));
 
     // List available prompts
     this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
@@ -439,11 +425,13 @@ export class McpServer {
 **console_tabs** — action: list | suggest
 - list: show all tabs with log counts.
 - suggest: provide ranked suggestions using working directory, URL patterns, domains, or ports.
+- Each tab entry includes sessionId, lastNavigationAt, and an isActive flag so you can prioritize the focused tab or most recent navigation.
 
 **console_logs** — action: list | get | tail
 - list: filter by level, tab, URL, or time window.
 - get: fetch a single log by ID (include args/stack as needed).
 - tail: stream the most recent logs with optional filters.
+- Use sessionScope: "current" (with tabId) to focus on logs captured after the latest page refresh/navigation.
 
 **console_search** — action: regex | keywords
 - regex: search message/args/stack with regex + context lines.
@@ -454,31 +442,37 @@ export class McpServer {
 - load: restore a saved session by ID or name.
 - list: enumerate available sessions.
 
-**console_maintenance** — action: stats | clear | export
-- stats: summarize captured logs and per-tab metrics.
-- clear: remove logs globally or for a tab/before timestamp.
-- export: dump logs as JSON/CSV/TXT (supports field selection).
+**console_browser_info**
+- Return current page title/URL and optionally HTML for a specific or active tab.
 
-**console_browser** — action: page_info | execute_js | query_dom
-- page_info: get page title/URL (optional HTML).
+**console_browser_execute** — mode: execute_js | query_dom
 - execute_js: run JS in tab context (provide code + optional tabId).
 - query_dom: extract DOM properties via CSS selectors.
 
+**console_snapshot**
+- Summarize recent activity (counts, error patterns) over the last 1/5/15 minutes, optionally scoped to a tab.
+
+**Maintenance**
+- Use the extension popup controls to clear logs or download exports directly (outside MCP tools).
+
 **Tab Selection Strategy**
 1. If the user's query is about a specific project/site, call console_tabs with action: "suggest".
-   - Include workingDirectory from console://context, relevant urlPatterns, and dev ports (3000, 5173, 8080, etc.).
+   - Provide relevant urlPatterns/domains/ports based on the project (e.g., ["localhost"], ports: [3000, 5173]).
 2. Review the ranked suggestions and choose the top-scoring tab.
-3. If multiple tabs look similar, ask the user for clarification.
-4. Use the chosen tabId in console_logs / console_search / console_browser calls.
+3. Prefer results where isActive = true or lastNavigationAt is most recent when the user references "current tab".
+4. If multiple tabs look similar, ask the user for clarification.
+4. Use the chosen tabId in console_logs / console_search / console_browser_* calls.
 
 **Common usage patterns**
 - "show errors" → console_tabs(action: "suggest") → console_logs(action: "list", levels: ["error"], tabId: X)
 - "from last X minutes" → console_logs(action: "list", after: "5m")
-- "search for X" → console_search(action: "regex", pattern: "X", filter: { tabId })
-- "statistics" → console_maintenance(action: "stats")
-- "export" → console_maintenance(action: "export", format: "json")
+- "only the latest after refresh" → console_logs(action: "list", tabId: X, sessionScope: "current")
+- "search for X" → console_search(action: "regex", pattern: "X", tabId: X)
 - "save this investigation" → console_sessions(action: "save", name: "checkout-bug")
-- "poke DOM" → console_browser(action: "query_dom", selector: ".error-message")
+- "get current page HTML" → console_browser_info(includeHtml: true)
+- "poke DOM" → console_browser_execute(mode: "query_dom", selector: ".error-message")
+- "toggle feature flag" → console_browser_execute(mode: "execute_js", code: "window.flags.enableBeta()")
+- "give me a quick status" → console_snapshot(window: "5m", includeExamples: true)
 
 Use the appropriate Console MCP tools to help the user query and analyze their browser console logs.`,
               },
@@ -507,11 +501,14 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
           case 'console_sessions':
             return await this.handleSessionsTool(args as any);
 
-          case 'console_maintenance':
-            return await this.handleMaintenanceTool(args as any);
+          case 'console_browser_info':
+            return await this.handleBrowserInfoTool(args as any);
 
-          case 'console_browser':
-            return await this.handleBrowserTool(args as any);
+          case 'console_browser_execute':
+            return await this.handleBrowserExecuteTool(args as any);
+
+          case 'console_snapshot':
+            return await this.handleSnapshotTool(args as any);
 
           default:
             throw new Error(`Unknown tool: ${name}`);
@@ -558,7 +555,7 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
 
     // Pagination
     const offset = args.offset || 0;
-    const limit = args.limit || 100;
+    const limit = args.limit || 50;
     logs = logs.slice(offset, offset + limit);
 
     // Sanitize if requested
@@ -579,7 +576,7 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
         sessionId: log.sessionId,
       };
 
-      if (args.includeArgs) {
+      if (args.includeArgs && Array.isArray(log.args) && log.args.length > 0) {
         minimal.args = log.args;
       }
 
@@ -636,7 +633,6 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
     urlPattern?: string;
     after?: string;
     before?: string;
-    sessionId?: string;
     limit?: number;
     offset?: number;
     sanitize?: boolean;
@@ -646,8 +642,10 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
     follow?: boolean;
     filter?: FilterOptions;
     lines?: number;
+    sessionScope?: 'all' | 'current';
   }) {
     const action = args?.action || 'list';
+    const sessionScope = args?.sessionScope || 'all';
 
     if (action === 'get') {
       if (!args?.logId) {
@@ -657,13 +655,17 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
     }
 
     if (action === 'tail') {
+      const baseFilter = this.buildFilterFromScopeArgs({
+        levels: args.levels,
+        tabId: args.tabId,
+        urlPattern: args.urlPattern,
+        after: args.after,
+        before: args.before,
+      });
+      const resolvedFilter = this.applySessionScopeToFilter(baseFilter, sessionScope);
       return this.handleTailLogs({
         follow: args.follow,
-        filter: args.filter ?? {
-          levels: args.levels as any,
-          tabId: args.tabId,
-          urlPattern: args.urlPattern,
-        },
+        filter: resolvedFilter,
         lines: args.lines,
       });
     }
@@ -674,7 +676,7 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
       urlPattern: args.urlPattern,
       after: args.after,
       before: args.before,
-      sessionId: args.sessionId,
+      sessionId: this.resolveSessionIdForScope(sessionScope, args.tabId),
       limit: args.limit,
       offset: args.offset,
       sanitize: args.sanitize,
@@ -690,14 +692,28 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
     fields?: Array<'message' | 'args' | 'stack'>;
     contextLines?: number;
     limit?: number;
-    filter?: FilterOptions;
     includeArgs?: boolean;
     includeStack?: boolean;
     keywords?: string[];
     logic?: 'AND' | 'OR';
     exclude?: string[];
+    sessionScope?: 'all' | 'current';
+    tabId?: number;
+    levels?: string[];
+    urlPattern?: string;
+    after?: string;
+    before?: string;
   }) {
     const action = args?.action || 'regex';
+    const sessionScope = args?.sessionScope || 'all';
+    const baseFilter = this.buildFilterFromScopeArgs({
+      levels: args.levels,
+      tabId: args.tabId,
+      urlPattern: args.urlPattern,
+      after: args.after,
+      before: args.before,
+    });
+    const filter = this.applySessionScopeToFilter(baseFilter, sessionScope);
 
     if (action === 'keywords') {
       if (!args?.keywords || args.keywords.length === 0) {
@@ -708,10 +724,10 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
         logic: args.logic,
         exclude: args.exclude,
         limit: args.limit,
-        filter: args.filter,
+        filter,
         includeArgs: args.includeArgs,
         includeStack: args.includeStack,
-      } satisfies KeywordSearchParams);
+      });
     }
 
     if (!args?.pattern) {
@@ -724,7 +740,7 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
       fields: args.fields,
       contextLines: args.contextLines,
       limit: args.limit,
-      filter: args.filter,
+      filter,
       includeArgs: args.includeArgs,
       includeStack: args.includeStack,
     });
@@ -757,59 +773,25 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
     return this.handleListSessions();
   }
 
-  private async handleMaintenanceTool(args: {
-    action?: 'clear' | 'export' | 'stats';
-    tabId?: number;
-    before?: string;
-    filter?: FilterOptions;
-    format?: 'json' | 'csv' | 'txt';
-    fields?: string[];
-    prettyPrint?: boolean;
-  }) {
-    const action = args?.action || 'stats';
-
-    if (action === 'clear') {
-      return this.handleClearLogs({
-        tabId: args.tabId,
-        before: args.before,
-      });
-    }
-
-    if (action === 'export') {
-      if (!args?.format) {
-        throw new Error('format is required for console_maintenance action=export');
-      }
-      return this.handleExportLogs({
-        format: args.format,
-        filter: args.filter,
-        fields: args.fields,
-        prettyPrint: args.prettyPrint,
-      } as any);
-    }
-
-    return this.handleGetStats();
+  private async handleBrowserInfoTool(args: { tabId?: number; includeHtml?: boolean }) {
+    return this.handleGetPageInfo({
+      tabId: args.tabId,
+      includeHtml: args.includeHtml,
+    });
   }
 
-  private async handleBrowserTool(args: {
-    action?: 'execute_js' | 'page_info' | 'query_dom';
+  private async handleBrowserExecuteTool(args: {
+    mode?: 'execute_js' | 'query_dom';
     code?: string;
     tabId?: number;
-    includeHtml?: boolean;
     selector?: string;
     properties?: string[];
   }) {
-    const action = args?.action || 'page_info';
+    const mode = args?.mode || 'execute_js';
 
-    if (action === 'execute_js') {
-      if (!args?.code) {
-        throw new Error('code is required for console_browser action=execute_js');
-      }
-      return this.handleExecuteJS({ code: args.code, tabId: args.tabId });
-    }
-
-    if (action === 'query_dom') {
+    if (mode === 'query_dom') {
       if (!args?.selector) {
-        throw new Error('selector is required for console_browser action=query_dom');
+        throw new Error('selector is required for console_browser_execute mode=query_dom');
       }
       return this.handleQueryDOM({
         selector: args.selector,
@@ -818,10 +800,178 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
       } as any);
     }
 
-    return this.handleGetPageInfo({
+    if (!args?.code) {
+      throw new Error('code is required for console_browser_execute mode=execute_js');
+    }
+    return this.handleExecuteJS({ code: args.code, tabId: args.tabId });
+  }
+
+  private async handleSnapshotTool(args: {
+    window?: '1m' | '5m' | '15m';
+    tabId?: number;
+    includeExamples?: boolean;
+  }) {
+    const windowMap: Record<'1m' | '5m' | '15m', number> = {
+      '1m': 60 * 1000,
+      '5m': 5 * 60 * 1000,
+      '15m': 15 * 60 * 1000,
+    };
+    const windowKey = args.window || '5m';
+    const windowMs = windowMap[windowKey];
+    const since = Date.now() - windowMs;
+
+    const baseFilter: FilterOptions = {
       tabId: args.tabId,
-      includeHtml: args.includeHtml,
+      after: new Date(since).toISOString(),
+    };
+    const recentLogs = this.storage.getAll(baseFilter);
+
+    const summary = this.buildSnapshotSummary(recentLogs, since, {
+      includeExamples: args.includeExamples,
     });
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(summary, null, 2),
+        },
+      ],
+    };
+  }
+
+  private resolveSessionIdForScope(sessionScope: 'all' | 'current', tabId?: number): string | undefined {
+    if (sessionScope !== 'current') {
+      return undefined;
+    }
+
+    if (tabId === undefined) {
+      throw new Error('sessionScope "current" requires tabId to be specified.');
+    }
+
+    const latestSession = this.storage.getLatestSession(tabId);
+    if (!latestSession) {
+      throw new Error(
+        `No session information available for tab ${tabId}. Trigger activity in the tab to capture logs first.`,
+      );
+    }
+    return latestSession.sessionId;
+  }
+
+  private applySessionScopeToFilter(
+    filter: FilterOptions | undefined,
+    sessionScope: 'all' | 'current',
+  ): FilterOptions | undefined {
+    if (!filter) {
+      if (sessionScope === 'current') {
+        throw new Error('sessionScope "current" requires a tabId to scope the filter.');
+      }
+      return undefined;
+    }
+
+    if (sessionScope === 'all' || filter.sessionId) {
+      return filter;
+    }
+
+    if (filter.tabId === undefined) {
+      throw new Error('sessionScope "current" requires filter.tabId to be set.');
+    }
+
+    const latestSession = this.storage.getLatestSession(filter.tabId);
+    if (!latestSession) {
+      throw new Error(
+        `No session information available for tab ${filter.tabId}. Trigger activity in the tab to capture logs first.`,
+      );
+    }
+
+    return {
+      ...filter,
+      sessionId: latestSession.sessionId,
+    };
+  }
+
+  private buildFilterFromScopeArgs(args: {
+    levels?: string[];
+    tabId?: number;
+    urlPattern?: string;
+    after?: string;
+    before?: string;
+  }): FilterOptions | undefined {
+    if (
+      args.levels === undefined &&
+      args.tabId === undefined &&
+      args.urlPattern === undefined &&
+      args.after === undefined &&
+      args.before === undefined
+    ) {
+      return undefined;
+    }
+
+    return {
+      levels: args.levels as any,
+      tabId: args.tabId,
+      urlPattern: args.urlPattern,
+      after: args.after,
+      before: args.before,
+    };
+  }
+
+  private buildSnapshotSummary(
+    logs: any[],
+    sinceTimestamp: number,
+    options: { includeExamples?: boolean },
+  ) {
+    const windowMinutes = Math.max(1, Math.round((Date.now() - sinceTimestamp) / (60 * 1000)));
+
+    const countsByLevel: Record<string, number> = {};
+    const errorsByMessage = new Map<string, { count: number; samples: any[] }>();
+    let newestLog: any | undefined;
+
+    for (const log of logs) {
+      countsByLevel[log.level] = (countsByLevel[log.level] || 0) + 1;
+
+      if (log.level === 'error') {
+        const key = log.message.slice(0, 200);
+        if (!errorsByMessage.has(key)) {
+          errorsByMessage.set(key, { count: 0, samples: [] });
+        }
+        const entry = errorsByMessage.get(key)!;
+        entry.count += 1;
+        if (options.includeExamples && entry.samples.length < 3) {
+          entry.samples.push({ id: log.id, tabId: log.tabId, timestamp: log.timestamp });
+        }
+      }
+
+      if (!newestLog || log.timestamp > newestLog.timestamp) {
+        newestLog = log;
+      }
+    }
+
+    const topErrors = Array.from(errorsByMessage.entries())
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 3)
+      .map(([message, data]) => ({
+        message,
+        count: data.count,
+        samples: options.includeExamples ? data.samples : undefined,
+      }));
+
+    return {
+      windowMinutes,
+      totalLogs: logs.length,
+      countsByLevel,
+      topErrors,
+      latestLog:
+        newestLog && options.includeExamples
+          ? {
+              id: newestLog.id,
+              level: newestLog.level,
+              message: newestLog.message,
+              timestamp: newestLog.timestamp,
+              tabId: newestLog.tabId,
+            }
+          : undefined,
+    };
   }
 
   private async handleGetLog(args: { id: string; sanitize?: boolean }) {
@@ -997,8 +1147,39 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
     };
   }
 
+  public clearLogs(filter?: { tabId?: number; before?: string }) {
+    this.storage.clear(filter);
+  }
+
+  public exportLogsSnapshot(args: {
+    format: 'json' | 'csv' | 'txt';
+    filter?: FilterOptions;
+    fields?: string[];
+    prettyPrint?: boolean;
+  }) {
+    const logs = args.filter ? this.storage.getAll(args.filter) : this.storage.getAll();
+    return this.exportEngine.export(logs, args.format, {
+      fields: args.fields as any,
+      prettyPrint: args.prettyPrint,
+    });
+  }
+
+  public getStatsSnapshot() {
+    return {
+      totalLogs: this.storage.getTotalCount(),
+      activeTabs: this.storage.getAllTabs().length,
+      wsConnections: this.wsServer.getConnectionCount(),
+      sessions: this.sessionManager.getCount(),
+      tabs: this.wsServer.getTabs().map((tab) => ({
+        id: tab.id,
+        url: tab.url,
+        logCount: this.storage.getTabCount(tab.id),
+      })),
+    };
+  }
+
   private async handleClearLogs(args: { tabId?: number; before?: string }) {
-    this.storage.clear(args);
+    this.clearLogs(args);
     return {
       content: [
         {
@@ -1015,11 +1196,7 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
     fields?: string[];
     prettyPrint?: boolean;
   }) {
-    const logs = args.filter ? this.storage.getAll(args.filter) : this.storage.getAll();
-    const exported = this.exportEngine.export(logs, args.format, {
-      fields: args.fields as any,
-      prettyPrint: args.prettyPrint,
-    });
+    const exported = this.exportLogsSnapshot(args);
 
     return {
       content: [
@@ -1091,17 +1268,7 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
   }
 
   private async handleGetStats() {
-    const stats = {
-      totalLogs: this.storage.getTotalCount(),
-      activeTabs: this.storage.getAllTabs().length,
-      wsConnections: this.wsServer.getConnectionCount(),
-      sessions: this.sessionManager.getCount(),
-      tabs: this.wsServer.getTabs().map((tab) => ({
-        id: tab.id,
-        url: tab.url,
-        logCount: this.storage.getTabCount(tab.id),
-      })),
-    };
+    const stats = this.getStatsSnapshot();
 
     return {
       content: [
@@ -1167,6 +1334,8 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
                 tabId: s.tab.id,
                 url: s.tab.url,
                 title: s.tab.title,
+                isActive: s.tab.isActive,
+                lastNavigationAt: s.tab.lastNavigationAt,
                 score: s.score,
                 reasons: s.reasons,
                 logCount: s.logCount,
@@ -1201,7 +1370,7 @@ Use the appropriate Console MCP tools to help the user query and analyze their b
       sessionId: log.sessionId,
     };
 
-    if (includeArgs && log.args) {
+    if (includeArgs && Array.isArray(log.args) && log.args.length > 0) {
       minimal.args = log.args;
     }
 

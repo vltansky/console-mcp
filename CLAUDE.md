@@ -17,7 +17,7 @@ console-logs-mcp is an MCP (Model Context Protocol) server that captures browser
 The server follows a modular architecture with specialized engines:
 
 - **`index.ts`**: Entry point that initializes LogStorage, ConsoleWebSocketServer, and McpServer
-- **`mcp-server.ts`**: Core MCP server implementation exposing six multi-action tools for log querying
+- **`mcp-server.ts`**: Core MCP server implementation exposing seven focused tools for log querying
 - **`websocket-server.ts`**: WebSocket server (port 9847) receiving log batches from extension
 - **`log-storage.ts`**: In-memory log storage with filtering and pagination
 - **`filter-engine.ts`**: Filters logs by level, tab, URL pattern, time range, session
@@ -91,6 +91,7 @@ Server configuration via environment variables:
 - `CONSOLE_MCP_PORT=9847` - WebSocket server port
 - `CONSOLE_MCP_MAX_LOGS=10000` - Maximum logs to store in memory
 - `CONSOLE_MCP_SANITIZE_LOGS=true` - Enable/disable sanitization
+- `CONSOLE_MCP_LOG_TTL_MINUTES=60` - Minutes before in-memory logs expire (set <= 0 to disable TTL)
 - `CONSOLE_MCP_BATCH_SIZE=50` - Batch size for log sending
 - `CONSOLE_MCP_BATCH_INTERVAL_MS=100` - Batch interval in milliseconds
 
@@ -132,10 +133,13 @@ All messages validated with Zod schemas at runtime.
 - `sessionId`: Filter by session
 
 ### MCP Tools
-All six multi-action MCP tools are defined in `mcp-server.ts`:
+All seven MCP tools are defined in `mcp-server.ts`:
+- `console_tabs`, `console_logs`, `console_search`, `console_sessions`, `console_browser_info`, `console_browser_execute`, `console_snapshot`
 - Tools accept JSON arguments validated against input schemas
 - Tools return text content (usually JSON stringified)
 - Error handling returns `isError: true` with error message
+- `console_logs` and `console_search` accept `sessionScope` (`"all"` or `"current"`) to focus on the latest navigation/session per tab
+- Maintenance actions (clear/export/stats) are available via the browser extension popup, not as MCP tools
 
 ## Testing Strategy
 

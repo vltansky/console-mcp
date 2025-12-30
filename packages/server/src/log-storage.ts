@@ -3,11 +3,13 @@ import { FilterEngine } from './filter-engine.js';
 
 export interface LogStorageConfig {
   maxLogs?: number;
+  ttlMs?: number;
 }
 
 export class LogStorage {
   private logs: LogMessage[] = [];
   private readonly maxLogs: number;
+  private readonly ttlMs?: number;
   private readonly filterEngine: FilterEngine;
   private subscribers = new Set<{
     callback: (log: LogMessage) => void;
@@ -16,26 +18,23 @@ export class LogStorage {
 
   // Index for faster lookups by tabId
   private logsByTab = new Map<number, LogMessage[]>();
+  private latestSessions = new Map<number, { sessionId: string; startedAt: number }>();
 
   constructor(config: LogStorageConfig = {}) {
     this.maxLogs = config.maxLogs ?? 10000;
+    this.ttlMs = config.ttlMs;
     this.filterEngine = new FilterEngine();
   }
 
   add(log: LogMessage): void {
+    this.cleanupExpiredLogs();
+
     // Add to main storage (circular buffer)
     this.logs.push(log);
     if (this.logs.length > this.maxLogs) {
       const removed = this.logs.shift();
-      // Clean up tab index
       if (removed) {
-        const tabLogs = this.logsByTab.get(removed.tabId);
-        if (tabLogs) {
-          const index = tabLogs.indexOf(removed);
-          if (index !== -1) {
-            tabLogs.splice(index, 1);
-          }
-        }
+        this.removeFromTabIndex(removed);
       }
     }
 
@@ -44,6 +43,12 @@ export class LogStorage {
       this.logsByTab.set(log.tabId, []);
     }
     this.logsByTab.get(log.tabId)?.push(log);
+
+    // Track most recent session per tab
+    const latestSession = this.latestSessions.get(log.tabId);
+    if (!latestSession || latestSession.sessionId !== log.sessionId) {
+      this.latestSessions.set(log.tabId, { sessionId: log.sessionId, startedAt: log.timestamp });
+    }
 
     // Notify subscribers
     for (const { callback, filter } of this.subscribers) {
@@ -54,6 +59,8 @@ export class LogStorage {
   }
 
   getAll(filter?: FilterOptions): LogMessage[] {
+    this.cleanupExpiredLogs();
+
     if (!filter) {
       return [...this.logs];
     }
@@ -77,6 +84,7 @@ export class LogStorage {
     if (!filter) {
       this.logs = [];
       this.logsByTab.clear();
+      this.latestSessions.clear();
       return;
     }
 
@@ -87,13 +95,7 @@ export class LogStorage {
 
       // Update tab index
       if (!shouldKeep) {
-        const tabLogs = this.logsByTab.get(log.tabId);
-        if (tabLogs) {
-          const index = tabLogs.indexOf(log);
-          if (index !== -1) {
-            tabLogs.splice(index, 1);
-          }
-        }
+        this.removeFromTabIndex(log);
       }
 
       return shouldKeep;
@@ -107,14 +109,50 @@ export class LogStorage {
   }
 
   getTotalCount(): number {
+    this.cleanupExpiredLogs();
     return this.logs.length;
   }
 
   getTabCount(tabId: number): number {
+    this.cleanupExpiredLogs();
     return this.logsByTab.get(tabId)?.length ?? 0;
   }
 
   getAllTabs(): number[] {
+    this.cleanupExpiredLogs();
     return Array.from(this.logsByTab.keys());
+  }
+
+  getLatestSession(tabId: number): { sessionId: string; startedAt: number } | undefined {
+    this.cleanupExpiredLogs();
+    return this.latestSessions.get(tabId);
+  }
+
+  private removeFromTabIndex(log: LogMessage): void {
+    const tabLogs = this.logsByTab.get(log.tabId);
+    if (tabLogs) {
+      const index = tabLogs.indexOf(log);
+      if (index !== -1) {
+        tabLogs.splice(index, 1);
+      }
+      if (tabLogs.length === 0) {
+        this.logsByTab.delete(log.tabId);
+        this.latestSessions.delete(log.tabId);
+      }
+    }
+  }
+
+  private cleanupExpiredLogs(): void {
+    if (!this.ttlMs) {
+      return;
+    }
+
+    const cutoff = Date.now() - this.ttlMs;
+    while (this.logs.length > 0 && this.logs[0].timestamp < cutoff) {
+      const removed = this.logs.shift();
+      if (removed) {
+        this.removeFromTabIndex(removed);
+      }
+    }
   }
 }

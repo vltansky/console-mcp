@@ -125,6 +125,10 @@ export class TabSuggester {
       score += 15;
     }
 
+    if (tab.isActive) {
+      score += 20;
+    }
+
     return score;
   }
 
@@ -152,7 +156,20 @@ export class TabSuggester {
       if (errorCount > 0) {
         reasons.push(`Contains ${errorCount} error${errorCount > 1 ? 's' : ''}`);
       }
-    } else {
+    }
+
+    if (tab.isActive) {
+      reasons.push('Currently active tab');
+    }
+
+    if (tab.lastNavigationAt) {
+      const minutesSinceNav = (Date.now() - tab.lastNavigationAt) / (1000 * 60);
+      if (minutesSinceNav < 5) {
+        reasons.push('Fresh navigation (<5 minutes ago)');
+      } else if (minutesSinceNav < 30) {
+        reasons.push('Navigation occurred within the last 30 minutes');
+      }
+    } else if (logs.length === 0) {
       reasons.push('No logs captured yet');
     }
 

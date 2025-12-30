@@ -3,7 +3,6 @@ const statusIndicator = document.getElementById('status-indicator') as HTMLEleme
 const statusText = document.getElementById('status-text') as HTMLElement;
 const toggleBtn = document.getElementById('toggle-btn') as HTMLButtonElement;
 const toggleText = document.getElementById('toggle-text') as HTMLElement;
-const clearBtn = document.getElementById('clear-btn') as HTMLButtonElement;
 const totalLogsEl = document.getElementById('total-logs') as HTMLElement;
 const activeTabsEl = document.getElementById('active-tabs') as HTMLElement;
 const tabsList = document.getElementById('tabs-list') as HTMLElement;
@@ -11,6 +10,9 @@ const sanitizeCheckbox = document.getElementById('sanitize-checkbox') as HTMLInp
 const captureErrorsCheckbox = document.getElementById(
   'capture-errors-checkbox',
 ) as HTMLInputElement;
+const clearBtn = document.getElementById('clear-btn') as HTMLButtonElement;
+const exportJsonBtn = document.getElementById('export-json-btn') as HTMLButtonElement;
+const maintenanceStatsEl = document.getElementById('maintenance-stats') as HTMLElement;
 
 // Update status display
 function updateStatus(status: 'connected' | 'disconnected' | 'reconnecting'): void {
@@ -99,11 +101,67 @@ toggleBtn.addEventListener('click', async () => {
   }
 });
 
-// Clear logs (this would need to be implemented on the server side)
+async function refreshMaintenanceStats(): Promise<void> {
+  try {
+    maintenanceStatsEl.innerHTML = '<p class="empty-state">Loading…</p>';
+    const stats = await chrome.runtime.sendMessage({ type: 'maintenance_stats' });
+    if (!stats || stats.error) {
+      throw new Error(stats?.error || 'No stats returned');
+    }
+    const rows = [
+      { label: 'Total Logs', value: stats.totalLogs },
+      { label: 'Active Tabs (server)', value: stats.activeTabs },
+      { label: 'Sessions Saved', value: stats.sessions },
+    ];
+
+    maintenanceStatsEl.innerHTML = rows
+      .map(
+        (row) => `
+        <div class="maintenance-row">
+          <span>${row.label}</span>
+          <span>${row.value}</span>
+        </div>
+      `,
+      )
+      .join('');
+  } catch (error) {
+    console.error('Failed to fetch maintenance stats:', error);
+    maintenanceStatsEl.innerHTML = '<p class="empty-state">Failed to load</p>';
+  }
+}
+
 clearBtn.addEventListener('click', async () => {
-  if (confirm('Are you sure you want to clear all logs?')) {
-    // TODO: Implement clear logs functionality
-    console.log('Clear logs requested');
+  if (!confirm('Clear all stored console logs?')) {
+    return;
+  }
+  clearBtn.disabled = true;
+  try {
+    await chrome.runtime.sendMessage({ type: 'maintenance_clear' });
+    await Promise.all([updateTabs(), refreshMaintenanceStats()]);
+  } catch (error) {
+    console.error('Failed to clear logs:', error);
+    alert('Failed to clear logs. Check server status.');
+  } finally {
+    clearBtn.disabled = false;
+  }
+});
+
+exportJsonBtn.addEventListener('click', async () => {
+  exportJsonBtn.disabled = true;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'maintenance_export',
+      format: 'json',
+    });
+    if (!response || !response.data) {
+      throw new Error('Invalid export response');
+    }
+    downloadText(`console-logs-${Date.now()}.json`, response.data, 'application/json');
+  } catch (error) {
+    console.error('Failed to export logs:', error);
+    alert('Failed to export logs. Check server status.');
+  } finally {
+    exportJsonBtn.disabled = false;
   }
 });
 
@@ -138,16 +196,30 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
+function downloadText(filename: string, content: string, mimeType: string): void {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 // Initialize
 async function init(): Promise<void> {
   await loadSettings();
   await updateStats();
   await updateTabs();
+  await refreshMaintenanceStats();
 
   // Refresh periodically
   setInterval(() => {
     updateStats();
     updateTabs();
+    refreshMaintenanceStats();
   }, 2000);
 }
 

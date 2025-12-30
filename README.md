@@ -62,7 +62,7 @@ When working on multiple projects simultaneously, console-logs-mcp intelligently
 > Which tab should I focus on for debugging my checkout flow?
 
 **What happens:**
-- console-logs-mcp analyzes your project context (working directory, ports, URL patterns)
+- console-logs-mcp analyzes your hints (URL patterns, domains, dev-server ports)
 - Ranks all open tabs by relevance
 - Suggests the most likely tab with reasoning
 - Shows recent error counts per tab
@@ -82,6 +82,16 @@ When working on multiple projects simultaneously, console-logs-mcp intelligently
 - Groups errors by frequency, URL, and time distribution
 - AI identifies patterns (e.g., "All auth errors happen after token refresh")
 - Suggests fixes based on the error context
+
+---
+
+### Navigation Awareness & Retention
+
+- `console_tabs` always reports `isActive`, `sessionId`, and `lastNavigationAt` so you can distinguish the current tab from historical ones.
+- `sessionScope: "current"` is available on both `console_logs` and `console_search`, ensuring queries only consider logs captured after the most recent refresh/page navigation for the chosen tab.
+- Logs automatically expire after `CONSOLE_MCP_LOG_TTL_MINUTES` (60 minutes by default) so stored data never grows unbounded. Set the value to `0` if you want unlimited retention.
+
+These guardrails keep the tool focused on fresh context without forcing you to manually clear logs.
 
 ---
 
@@ -120,14 +130,15 @@ console-logs-mcp fetches matching logs instantly, with full stack traces, timest
 | Feature | Description | Benefit |
 |---------|-------------|---------|
 | 🔍 **Real-time Log Capture** | Browser extension captures console logs from all tabs | Never miss a log, even on page reload |
-| 🤖 **AI Integration** | Query logs using natural language through 6 multi-action MCP tools | Ask questions instead of writing filters |
-| 🎯 **Smart Tab Selection** | Automatically suggest relevant tabs based on project context | Find the right tab instantly in multi-project setups |
+| 🤖 **AI Integration** | Query logs using natural language through 7 focused MCP tools | Ask questions instead of writing filters |
+| 🎯 **Smart Tab Selection** | Suggest relevant tabs by combining URL patterns, domains, and ports | Find the right tab instantly in multi-project setups |
 | 🔎 **Advanced Search** | Regex and keyword search with filtering by level, URL, time | Powerful pattern matching and boolean logic |
 | 📊 **Session Management** | Save and restore named log sessions for debugging | Compare before/after, reproduce issues with memorable names |
+| 🧭 **Active Tab Awareness** | Tab listing includes `isActive`, `sessionId`, and `lastNavigationAt` | Immediately see which tab is focused and when it last refreshed |
 | 🔒 **Data Sanitization** | Automatically mask sensitive information (tokens, keys) | Debug safely without exposing secrets |
 | 📤 **Export** | Export logs in JSON, CSV, or plain text formats | Share logs with team, analyze offline |
+| 🕒 **Auto Retention** | Configurable TTL trims old logs (60 minutes by default) | Keep memory usage predictable |
 | ⚡ **Lightweight** | Batched WebSocket protocol, minimal performance impact | <1% CPU overhead, 95% network reduction |
-| 📁 **Project Context** | MCP resources expose working directory and environment info | Context-aware suggestions and filtering |
 | 🎮 **Browser Automation** | Execute JavaScript, query DOM, get page info directly from AI | Reproduce issues, test fixes, inspect state without DevTools |
 
 ---
@@ -367,7 +378,7 @@ Query DOM for '.submit-btn' and get disabled, className properties
 
 ## MCP Tools Reference
 
-console-logs-mcp now exposes **six multi-action tools**. Each tool keeps the surface area small while still covering the entire debugging workflow. Pass the desired `action` plus only the fields you need and the server routes the request to the right handler.
+console-logs-mcp now exposes **seven focused tools**. Each one keeps the surface area small while still covering the entire debugging workflow. Pass the desired `action` (or `mode`) plus only the fields you need and the server routes the request to the right handler.
 
 ---
 
@@ -378,9 +389,14 @@ Centralized tab intelligence.
 - **`action: "list"`** — returns every connected tab with URLs, titles, and log counts; perfect for quick situational awareness.
 - **`action: "suggest"`** — feeds working directory, URL patterns, domains, or expected ports to get a ranked list of likely tabs with reasoning.
 
+**Response metadata**
+- `isActive`: `true` for the tab currently focused in the browser.
+- `sessionId`: Latest navigation/session identifier (changes after refresh or page navigation).
+- `lastNavigationAt`: Timestamp (ms) for the most recent navigation, so you can compare "current" vs historical logs at a glance.
+
 **Tips**
-- Use the `console://context` resource to fill `workingDirectory`.
 - Provide multiple `urlPatterns` when juggling monorepos or staging environments.
+- Include likely dev-server ports (e.g., [3000, 5173]) so suggestions prioritize local tabs.
 
 ---
 
@@ -395,6 +411,9 @@ One tool for all direct log access.
 **Tips**
 - Default responses omit `args`/`stack`; only include them when needed to save tokens.
 - Use relative time strings like `"10m"` or `"2h"` for quick windowing.
+- Pass `sessionScope: "current"` alongside `tabId` to automatically limit results to the latest navigation/session for that tab.
+- The default page size is 50 logs; bump `limit` only when you really need more context.
+- `sessionScope: "current"` always requires `tabId` so the server knows which navigation to target.
 
 ---
 
@@ -408,6 +427,9 @@ Pattern and keyword discovery in a single entry point.
 **Tips**
 - Pair with `tabId` filters to keep searches scoped.
 - Start with small result limits, then broaden if you need more hits.
+- Use `sessionScope: "current"` with `tabId` to search only the latest navigation logs.
+- `levels`, `urlPattern`, `after`, and `before` match the same filter semantics as `console_logs`.
+- Default `limit` is 50; request more only when necessary.
 
 ---
 
@@ -425,37 +447,51 @@ Session lifecycle without juggling three separate tools.
 
 ---
 
-### 🛠️ `console_maintenance`
+### 🎮 `console_browser_info`
 
-Operational utilities bundled together.
+Lightweight page context without overloading the transcript.
 
-- **`action: "stats"`** — get aggregated metrics (counts per level/tab, recent hotspots).
-- **`action: "clear"`** — wipe all logs or only those for a tab/before timestamp to start fresh.
-- **`action: "export"`** — dump logs as JSON/CSV/TXT with optional field selection and pretty-printing.
+- Returns page title and URL for a specified tab (defaults to active tab).
+- Optional `includeHtml: true` dumps markup, but defaults to `false` to preserve tokens.
 
 **Tips**
-- Use `stats` before digging in so the agent can describe the log landscape.
-- Export filtered subsets for bug reports instead of the entire log buffer.
+- Call before other actions to confirm you’re on the expected route.
+- Keep `includeHtml` off unless you truly need the DOM dump.
 
 ---
 
-### 🎮 `console_browser`
+### 🧪 `console_browser_execute`
 
-Browser automation stays compact but capable.
+Focused surface for in-page actions.
 
-- **`action: "page_info"`** — return page title/URL and optional HTML for context.
-- **`action: "execute_js"`** — run arbitrary JavaScript in page scope (e.g., inspect app state or toggle feature flags).
-- **`action: "query_dom"`** — read DOM nodes via CSS selectors; request multiple properties per element.
+- **`mode: "execute_js"`** — run small JS snippets (e.g., toggle feature flags, inspect globals).
+- **`mode: "query_dom"`** — fetch DOM nodes with CSS selectors and return chosen properties.
 
 **Tips**
-- Always pair DOM/JS actions with a `tabId` selected via `console_tabs` to avoid ambiguity.
-- Keep JavaScript snippets short and idempotent; the agent can chain multiple calls if needed.
+- Always pass `tabId` from `console_tabs` when working with multiple tabs.
+- Provide specific selectors/properties; default DOM properties include `textContent`, `className`, `id`, `tagName`.
+- Keep JS snippets idempotent—chain multiple calls for multi-step flows instead of one giant script.
 
 ---
 
-### 📦 Resource: `console://context`
+### 📸 `console_snapshot`
 
-Provides working directory, project name, and suggested dev-server ports so agents can make better decisions (especially when calling `console_tabs` with `action: "suggest"`).
+Condensed view of recent log activity.
+
+- **`window`** — choose `1m`, `5m`, or `15m` (default `5m`) to summarize that time range.
+- Reports total logs, counts per level, top error messages, and (optionally) sample log IDs.
+- Use `tabId` to focus on a specific tab; omit it for a holistic view across all tabs.
+
+**Tips**
+- Start with a snapshot before diving into `console_logs` to understand the error landscape.
+- Set `includeExamples: true` when you need concrete log IDs to investigate further.
+
+---
+
+### 🧩 Maintenance via Extension
+
+- Open the browser extension popup to clear logs or download exports directly without using MCP tools.
+- The popup also shows live stats (total logs, active tabs) and provides a one-click JSON export.
 
 ---
 
@@ -469,6 +505,7 @@ CONSOLE_MCP_MAX_LOGS=10000         # Maximum logs to store in memory (default: 1
 CONSOLE_MCP_SANITIZE_LOGS=true     # Enable automatic data sanitization (default: true)
 CONSOLE_MCP_BATCH_SIZE=50          # Batch size for log sending (default: 50)
 CONSOLE_MCP_BATCH_INTERVAL_MS=100  # Batch interval in milliseconds (default: 100)
+CONSOLE_MCP_LOG_TTL_MINUTES=60     # Minutes to retain logs before automatic cleanup (set <= 0 to disable)
 ```
 
 **Example:**
@@ -477,6 +514,8 @@ CONSOLE_MCP_BATCH_INTERVAL_MS=100  # Batch interval in milliseconds (default: 10
 # Increase log storage and change port
 CONSOLE_MCP_PORT=8080 CONSOLE_MCP_MAX_LOGS=50000 npx console-logs-mcp@latest
 ```
+
+> Logs older than `CONSOLE_MCP_LOG_TTL_MINUTES` are automatically purged. Set the value to `0` or a negative number if you prefer unlimited retention.
 
 ---
 
@@ -500,7 +539,7 @@ console-logs-mcp uses a three-component architecture for efficient real-time log
 
 | Package | Description | Key Components |
 |---------|-------------|----------------|
-| **`console-logs-mcp`** | MCP server exposing 6 multi-action tools + WebSocket server | MCP tools, WebSocket server, log storage, filter/search engines, tab suggester, session manager |
+| **`console-logs-mcp`** | MCP server exposing 7 focused tools + WebSocket server | MCP tools, WebSocket server, log storage, filter/search engines, tab suggester, session manager |
 | **`console-logs-mcp-extension`** | Chrome/Edge extension capturing console logs | Content script, console interceptor, WebSocket client, popup UI |
 | **`console-logs-mcp-shared`** | Shared TypeScript types and Zod schemas | LogMessage, FilterOptions, SearchOptions, TabInfo types |
 

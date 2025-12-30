@@ -133,16 +133,19 @@ interface LogMessage {
 }
 
 interface TabInfo {
-  tabId: number;
+  id: number;
   url: string;
   title: string;
-  active: boolean;
+  sessionId: string;
+  isActive: boolean;
+  lastNavigationAt: number; // Timestamp when the current navigation/session started
 }
 
 // Extension → Server messages
 type ExtensionMessage =
   | { type: 'log', data: LogMessage }
   | { type: 'tab_opened', data: TabInfo }
+  | { type: 'tab_updated', data: TabInfo }
   | { type: 'tab_closed', data: { tabId: number } }
   | { type: 'heartbeat' };
 
@@ -533,7 +536,7 @@ Export logs to file.
 CONSOLE_MCP_PORT=9847                    # WebSocket port
 CONSOLE_MCP_HOST=localhost               # WebSocket host
 CONSOLE_MCP_MAX_LOGS=10000              # Max logs in memory
-CONSOLE_MCP_LOG_RETENTION_HOURS=24      # Auto-delete old logs
+CONSOLE_MCP_LOG_TTL_MINUTES=60          # Auto-delete old logs after N minutes (<=0 disables)
 
 # Feature flags
 CONSOLE_MCP_SANITIZE_LOGS=true          # Enable sanitization

@@ -24,12 +24,15 @@ export interface TabInfo {
   url: string;
   title: string;
   sessionId: string;
+  isActive: boolean;
+  lastNavigationAt: number;
 }
 
 // WebSocket protocol - Extension to Server
 export type ExtensionMessage =
   | { type: 'log'; data: LogMessage }
   | { type: 'tab_opened'; data: TabInfo }
+  | { type: 'tab_updated'; data: TabInfo }
   | { type: 'tab_closed'; data: { tabId: number } }
   | { type: 'heartbeat'; data: { timestamp: number } };
 
@@ -131,6 +134,8 @@ export const TabInfoSchema = z.object({
   url: z.string(),
   title: z.string(),
   sessionId: z.string(),
+  isActive: z.boolean(),
+  lastNavigationAt: z.number(),
 });
 
 export const ExtensionMessageSchema = z.discriminatedUnion('type', [
@@ -140,6 +145,10 @@ export const ExtensionMessageSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('tab_opened'),
+    data: TabInfoSchema,
+  }),
+  z.object({
+    type: z.literal('tab_updated'),
     data: TabInfoSchema,
   }),
   z.object({

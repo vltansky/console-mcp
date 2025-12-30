@@ -63,6 +63,7 @@ interface LogMessage {
 type ExtensionMessage =
   | { type: 'log'; data: LogMessage }
   | { type: 'tab_opened'; data: TabInfo }
+  | { type: 'tab_updated'; data: TabInfo }
   | { type: 'tab_closed'; data: { tabId: number } }
   | { type: 'heartbeat' };
 
