@@ -167,8 +167,8 @@ npx console-bridge@latest
 
 ```bash
 # Clone and build
-git clone https://github.com/AiCodeCraft/console-bridge.git
-cd console-bridge
+git clone https://github.com/vltansky/console-bridge-mcp.git
+cd console-bridge-mcp
 npm install
 npm run build
 
@@ -503,12 +503,12 @@ Environment variables for the server:
 
 ```bash
 CONSOLE_MCP_PORT=9847              # WebSocket server port (default: 9847)
+CONSOLE_MCP_DISCOVERY_PORT=9846    # HTTP discovery & maintenance server port (default: 9846)
 CONSOLE_MCP_MAX_LOGS=10000         # Maximum logs to store in memory (default: 10000)
-CONSOLE_MCP_SANITIZE_LOGS=true     # Enable automatic data sanitization (default: true)
-CONSOLE_MCP_BATCH_SIZE=50          # Batch size for log sending (default: 50)
-CONSOLE_MCP_BATCH_INTERVAL_MS=100  # Batch interval in milliseconds (default: 100)
 CONSOLE_MCP_LOG_TTL_MINUTES=60     # Minutes to retain logs before automatic cleanup (set <= 0 to disable)
 ```
+
+> **Note**: Data sanitization is handled by the browser extension, not the server. Batch configuration is not used as messages are sent immediately to avoid issues in service workers.
 
 **Example:**
 
@@ -530,10 +530,11 @@ console-bridge uses a three-component architecture for efficient real-time log c
 │   Browser Tabs      │          │    MCP Server        │          │  AI Assistant   │
 │                     │          │                      │          │                 │
 │  Console Logs       │─────────▶│  WebSocket :9847     │◀─────────│  MCP Tools      │
-│  (Extension)        │  Batched │  • Log Storage       │  stdio   │  (Cursor/etc)   │
+│  (Extension)        │  Real-time│  • Log Storage       │  stdio   │  (Cursor/etc)   │
 │  • Intercept        │          │  • Filter Engine     │          │                 │
-│  • Batch            │          │  • Search Engine     │          │                 │
-│  • Send             │          │  • Tab Suggester     │          │                 │
+│  • Send             │          │  • Search Engine     │          │                 │
+│                     │          │  • Tab Suggester     │          │                 │
+│                     │          │  • Discovery :9846   │          │                 │
 └─────────────────────┘          └──────────────────────┘          └─────────────────┘
 ```
 
@@ -541,24 +542,26 @@ console-bridge uses a three-component architecture for efficient real-time log c
 
 | Package | Description | Key Components |
 |---------|-------------|----------------|
-| **`console-bridge`** | MCP server exposing 7 focused tools + WebSocket server | MCP tools, WebSocket server, log storage, filter/search engines, tab suggester, session manager |
+| **`console-bridge`** | MCP server exposing 7 focused tools + WebSocket server + HTTP discovery | MCP tools, WebSocket server (port 9847), HTTP discovery server (port 9846), log storage, filter/search engines, tab suggester, session manager |
 | **`console-bridge-extension`** | Chrome/Edge extension capturing console logs | Content script, console interceptor, WebSocket client, popup UI |
 | **`console-bridge-shared`** | Shared TypeScript types and Zod schemas | LogMessage, FilterOptions, SearchOptions, TabInfo types |
 
 ### Data Flow
 
 1. **Capture**: Extension content script intercepts `console.log/warn/error/etc` in browser tabs
-2. **Batch**: Logs are batched and sent via WebSocket to server (default: 50 logs per 100ms)
+2. **Send**: Logs are sent immediately via WebSocket to server (real-time transmission)
 3. **Store**: Server stores logs in-memory (max 10,000 by default) with filtering/search indexes
 4. **Query**: AI assistant queries logs via MCP tools through stdio transport
 5. **Respond**: Server returns structured log data with context (timestamps, stack traces, tab info)
+6. **Discovery**: HTTP server (port 9846) provides service discovery and maintenance endpoints
 
 ### Performance Characteristics
 
-- **Batching**: Reduces network overhead by 95% compared to per-log transmission
+- **Real-time Transmission**: Logs sent immediately without batching for low latency
 - **In-Memory Storage**: Sub-millisecond query response times
 - **Indexed Search**: Regex and keyword search optimized with pre-built indexes
 - **Minimal Browser Impact**: <1% CPU overhead in typical usage
+- **Service Discovery**: HTTP endpoint enables extension auto-discovery of server
 
 ---
 
@@ -601,6 +604,7 @@ console-bridge/
 │   │   │   ├── index.ts              # Entry point
 │   │   │   ├── mcp-server.ts         # MCP tool definitions
 │   │   │   ├── websocket-server.ts   # WebSocket server
+│   │   │   ├── discovery-server.ts  # HTTP discovery & maintenance server
 │   │   │   ├── log-storage.ts        # In-memory storage
 │   │   │   ├── filter-engine.ts      # Log filtering
 │   │   │   ├── search-engine.ts      # Regex/keyword search
@@ -615,7 +619,8 @@ console-bridge/
 │   │   │   ├── content-script.ts     # Page injection
 │   │   │   ├── lib/
 │   │   │   │   ├── console-interceptor.ts  # Intercept console calls
-│   │   │   │   └── websocket-client.ts     # WebSocket client
+│   │   │   │   ├── websocket-client.ts     # WebSocket client
+│   │   │   │   └── sanitizer.ts            # Data sanitization
 │   │   │   └── popup/                # Extension UI
 │   │   ├── public/
 │   │   │   ├── manifest.json
@@ -655,15 +660,15 @@ MIT License - see [LICENSE](./LICENSE) for details.
 
 ### Get Support
 
-- **GitHub Issues**: [Report bugs, request features](https://github.com/vltansky/console-bridge/issues)
-- **GitHub Discussions**: [Ask questions, share ideas](https://github.com/vltansky/console-bridge/discussions)
+- **GitHub Issues**: [Report bugs, request features](https://github.com/vltansky/console-bridge-mcp/issues)
+- **GitHub Discussions**: [Ask questions, share ideas](https://github.com/vltansky/console-bridge-mcp/discussions)
 - **Documentation**: See [CLAUDE.md](./CLAUDE.md) for architecture details
 
 ### Show Your Support
 
 If console-bridge improves your debugging workflow:
 
-- **Star the repository** on [GitHub](https://github.com/vltansky/console-bridge)
+- **Star the repository** on [GitHub](https://github.com/vltansky/console-bridge-mcp)
 - **Share on social media** with #consolebridge
 - **Write about your experience** on your blog
 - **Create tutorials** and share with the community
@@ -675,7 +680,7 @@ If console-bridge improves your debugging workflow:
 
 **Built with care for developers by developers**
 
-[GitHub](https://github.com/vltansky/console-bridge) • [NPM](https://www.npmjs.com/package/console-bridge)
+[GitHub](https://github.com/vltansky/console-bridge-mcp) • [NPM](https://www.npmjs.com/package/console-bridge)
 
 ---
 
