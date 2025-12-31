@@ -63,7 +63,7 @@ console-bridge requires two components: a **browser extension** (captures logs) 
 <summary>Claude Code</summary>
 
 ```bash
-claude mcp add console-bridge -- npx -y console-bridge-mcp@latest
+claude mcp add console-bridge -s user -- npx -y console-bridge-mcp@latest
 ```
 
 Or add to `~/.claude.json`:
