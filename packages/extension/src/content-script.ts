@@ -84,9 +84,7 @@ function executeInPage(code: string, requestId: string): Promise<ExecuteResultPa
   });
 }
 
-// Install console interceptor
 interceptConsole((logData: LogMessage) => {
-  // Send log to background script
   chrome.runtime
     .sendMessage({
       type: 'console_log',
@@ -101,7 +99,6 @@ interceptConsole((logData: LogMessage) => {
     });
 });
 
-// Listen for commands from background script
 chrome.runtime.onMessage.addListener((message: ServerMessage, _sender, sendResponse) => {
   handleCommand(message)
     .then((response) => {
@@ -244,7 +241,6 @@ async function handleCommand(message: ServerMessage): Promise<any> {
     }
 
     default:
-      // Not a command for content script
       return null;
   }
 }
@@ -417,5 +413,3 @@ function getProperties(element: Element): Record<string, unknown> {
 
   return props;
 }
-
-console.log('[Console MCP] Content script initialized');

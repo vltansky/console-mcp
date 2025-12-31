@@ -5,7 +5,6 @@ const levels = ['log', 'info', 'warn', 'error', 'debug'] as const;
 let sessionId: string | null = null;
 let tabId: number | null = null;
 
-// Generate a unique session ID for this page load
 function getSessionId(): string {
   if (!sessionId) {
     sessionId = crypto.randomUUID();
@@ -13,7 +12,6 @@ function getSessionId(): string {
   return sessionId;
 }
 
-// Get tab ID from chrome runtime
 async function getTabId(): Promise<number> {
   if (tabId !== null) {
     return tabId;
@@ -29,7 +27,6 @@ async function getTabId(): Promise<number> {
   return tabId;
 }
 
-// Serialize argument to JSON-safe format
 function serializeArg(arg: unknown): unknown {
   if (arg === null) return null;
   if (arg === undefined) return undefined;
@@ -73,12 +70,10 @@ function serializeArg(arg: unknown): unknown {
           return arg.map(serializeArg);
         }
 
-        // Handle DOM elements
         if (arg instanceof Element) {
           return `[Element: ${arg.tagName}#${arg.id || ''}]`;
         }
 
-        // Handle DOM nodes
         if (arg instanceof Node) {
           return `[Node: ${arg.nodeName}]`;
         }
@@ -125,17 +120,14 @@ function serializeArg(arg: unknown): unknown {
 }
 
 export function interceptConsole(onLog: (data: LogMessage) => void): void {
-  // Store original console methods
   const originals = new Map<LogLevel, any>();
 
   for (const level of levels) {
     originals.set(level, console[level]);
 
     console[level] = (...args: unknown[]) => {
-      // Get the stack trace
       const stack = new Error().stack;
 
-      // Create log message
       getTabId().then((currentTabId) => {
         const logMessage: LogMessage = {
           id: crypto.randomUUID(),
@@ -152,12 +144,10 @@ export function interceptConsole(onLog: (data: LogMessage) => void): void {
         onLog(logMessage);
       });
 
-      // Call original console method
       return originals.get(level)?.apply(console, args);
     };
   }
 
-  // Intercept unhandled errors
   window.addEventListener('error', (event) => {
     getTabId().then((currentTabId) => {
       const logMessage: LogMessage = {
@@ -183,7 +173,6 @@ export function interceptConsole(onLog: (data: LogMessage) => void): void {
     });
   });
 
-  // Intercept unhandled promise rejections
   window.addEventListener('unhandledrejection', (event) => {
     getTabId().then((currentTabId) => {
       const logMessage: LogMessage = {
@@ -201,6 +190,4 @@ export function interceptConsole(onLog: (data: LogMessage) => void): void {
       onLog(logMessage);
     });
   });
-
-  console.log('[Console MCP] Console interceptor installed');
 }

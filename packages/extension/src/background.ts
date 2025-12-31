@@ -8,12 +8,10 @@ import { CONSOLE_MCP_IDENTIFIER } from 'console-bridge-shared';
 import { Sanitizer } from './lib/sanitizer';
 import { WebSocketClient } from './lib/websocket-client';
 
-// Discovery configuration
 const DISCOVERY_PORT = 9846;
 const DISCOVERY_PORT_RANGE = { start: 9800, end: 9900 };
 const DISCOVERY_TIMEOUT_MS = 600;
 
-// Initialize WebSocket client (assigned during initialize)
 let wsClient: WebSocketClient | null = null;
 let hasInitialized = false;
 let initializationPromise: Promise<void> | null = null;
@@ -22,21 +20,25 @@ let initializationPromise: Promise<void> | null = null;
 // service worker restarts and the connection is still being re-established.
 const pendingMessages: ExtensionMessage[] = [];
 
-// Track tab information
+const recentLogs: LogMessage[] = [];
+const RECENT_LOGS_MAX = 50;
+
 const tabs = new Map<number, TabInfo>();
 const tabLogCounts = new Map<number, number>();
+const tabErrorCounts = new Map<number, number>();
+const tabLastErrors = new Map<number, string>();
 
-// Storage keys
 const STORAGE_KEYS = {
   ENABLED: 'console_mcp_enabled',
   SANITIZE: 'console_mcp_sanitize',
   LOG_LEVELS: 'console_mcp_log_levels',
   LAST_DISCOVERY_PORT: 'console_mcp_last_discovery_port',
+  FOCUS_ACTIVE_TAB: 'console_mcp_focus_active_tab',
 };
 
-// Extension state
 let isEnabled = true;
 let shouldSanitize = true;
+let focusActiveTabOnly = false;
 let lastDiscoveryPort: number | null = null;
 let activeTabId: number | null = null;
 let connectionStatus: 'connected' | 'disconnected' | 'reconnecting' = 'disconnected';
@@ -162,6 +164,13 @@ function formatLogCount(count: number): string {
 
 function updateBadge(): void {
   const logCount = getActiveTabLogCount();
+  const errorCount = activeTabId ? (tabErrorCounts.get(activeTabId) ?? 0) : 0;
+
+  if (errorCount > 0) {
+    chrome.action.setBadgeText({ text: formatLogCount(errorCount) });
+    chrome.action.setBadgeBackgroundColor({ color: '#EF4444' }); // Red for errors
+    return;
+  }
 
   if (logCount > 0) {
     chrome.action.setBadgeText({ text: formatLogCount(logCount) });
@@ -323,13 +332,14 @@ async function ensureInitialized(): Promise<void> {
       STORAGE_KEYS.SANITIZE,
       STORAGE_KEYS.LOG_LEVELS,
       STORAGE_KEYS.LAST_DISCOVERY_PORT,
+      STORAGE_KEYS.FOCUS_ACTIVE_TAB,
     ]);
 
     isEnabled = settings[STORAGE_KEYS.ENABLED] !== false;
     // Default sanitize to true (nullish coalescing: undefined/null -> true)
     shouldSanitize = settings[STORAGE_KEYS.SANITIZE] ?? true;
+    focusActiveTabOnly = settings[STORAGE_KEYS.FOCUS_ACTIVE_TAB] === true;
 
-    // Persist default to storage if not already set
     if (settings[STORAGE_KEYS.SANITIZE] === undefined) {
       await chrome.storage.local.set({ [STORAGE_KEYS.SANITIZE]: true });
     }
@@ -339,7 +349,6 @@ async function ensureInitialized(): Promise<void> {
       lastDiscoveryPort = storedPort;
     }
 
-    // Try to discover server URL (may fail if server isn't running)
     const wsUrl = await tryDiscoverServerUrl();
 
     // Create client with placeholder URL - urlResolver will find the real one
@@ -348,7 +357,6 @@ async function ensureInitialized(): Promise<void> {
 
     wireStatusHandler();
 
-    // Handle incoming messages from server (browser commands)
     wsClient.onMessage(async (message) => {
       await handleServerMessage(message);
     });
@@ -375,19 +383,16 @@ async function ensureInitialized(): Promise<void> {
   await initializationPromise;
 }
 
-// Initialize extension
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('[Background] Extension installed');
   await ensureInitialized();
 });
 
-// Connect on startup
 chrome.runtime.onStartup.addListener(() => {
   console.log('[Background] Extension started');
   void ensureInitialized();
 });
 
-// Initialize immediately when service worker loads
 void ensureInitialized();
 
 // Listen for storage changes (e.g., when user toggles sanitize in popup)
@@ -397,7 +402,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
-// Handle messages from content scripts and popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case 'console_log':
@@ -446,6 +450,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const tabStats = Array.from(tabs.values()).map((tab) => ({
           ...tab,
           logCount: tabLogCounts.get(tab.id) || 0,
+          errorCount: tabErrorCounts.get(tab.id) || 0,
+          lastError: tabLastErrors.get(tab.id) || null,
         }));
         sendResponse({ tabs: tabStats });
       });
@@ -455,6 +461,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       void (async () => {
         try {
           await callMaintenanceEndpoint('/maintenance/clear', { method: 'POST', body: {} });
+          tabLogCounts.clear();
+          tabErrorCounts.clear();
+          tabLastErrors.clear();
+          recentLogs.length = 0;
+          updateBadge();
           sendResponse({ success: true });
         } catch (error) {
           sendResponse({ error: error instanceof Error ? error.message : String(error) });
@@ -487,12 +498,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       })();
       return true;
+
+    case 'inject_marker':
+      void ensureInitialized().then(() => {
+        injectMarker();
+        sendResponse({ success: true });
+      });
+      return true;
+
+    case 'get_health_stats':
+      void ensureInitialized().then(() => {
+        const totalErrors = Array.from(tabErrorCounts.values()).reduce((a, b) => a + b, 0);
+        const totalLogs = Array.from(tabLogCounts.values()).reduce((a, b) => a + b, 0);
+        const activeTab = activeTabId ? tabs.get(activeTabId) : null;
+        const lastError = activeTabId ? tabLastErrors.get(activeTabId) : null;
+        sendResponse({
+          totalErrors,
+          totalLogs,
+          activeTabId,
+          activeTabTitle: activeTab?.title || null,
+          activeTabUrl: activeTab?.url || null,
+          lastError,
+        });
+      });
+      return true;
+
+    case 'get_recent_logs':
+      void ensureInitialized().then(() => {
+        sendResponse({ logs: recentLogs });
+      });
+      return true;
+
+    case 'set_focus_mode':
+      void (async () => {
+        focusActiveTabOnly = message.enabled ?? false;
+        await chrome.storage.local.set({ [STORAGE_KEYS.FOCUS_ACTIVE_TAB]: focusActiveTabOnly });
+        sendResponse({ enabled: focusActiveTabOnly });
+      })();
+      return true;
+
+    case 'get_focus_mode':
+      sendResponse({ enabled: focusActiveTabOnly });
+      return true;
   }
 });
 
 function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender): void {
   const tabId = sender.tab?.id;
   if (!tabId) {
+    return;
+  }
+
+  // Focus mode: ignore logs from non-active tabs
+  if (focusActiveTabOnly && tabId !== activeTabId) {
     return;
   }
 
@@ -523,27 +581,64 @@ function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender)
     setActiveTabId(tabId);
   }
 
-  // Update log count
   tabLogCounts.set(tabId, (tabLogCounts.get(tabId) || 0) + 1);
+
+  if (log.level === 'error') {
+    tabErrorCounts.set(tabId, (tabErrorCounts.get(tabId) || 0) + 1);
+    tabLastErrors.set(tabId, log.message);
+  }
+
   if (activeTabId === tabId) {
     updateBadge();
   }
 
-  // Ensure the log has the correct tab ID
   let logWithTabId: LogMessage = {
     ...log,
     tabId,
   };
 
-  // Sanitize if enabled
   if (shouldSanitize) {
     logWithTabId = sanitizer.sanitize(logWithTabId);
   }
 
-  // Send to WebSocket server
+  recentLogs.push(logWithTabId);
+  if (recentLogs.length > RECENT_LOGS_MAX) {
+    recentLogs.shift();
+  }
+
   sendOrQueue({
     type: 'log',
     data: logWithTabId,
+  });
+}
+
+function injectMarker(): void {
+  const now = Date.now();
+  const markerLog: LogMessage = {
+    id: `marker-${now}`,
+    timestamp: now,
+    level: 'info',
+    message: '════════════════ USER MARKER ════════════════',
+    args: [],
+    tabId: activeTabId ?? -1,
+    url: activeTabId ? (tabs.get(activeTabId)?.url ?? '') : '',
+    sessionId: activeTabId ? (tabs.get(activeTabId)?.sessionId ?? 'marker') : 'marker',
+  };
+
+  recentLogs.push(markerLog);
+  if (recentLogs.length > RECENT_LOGS_MAX) {
+    recentLogs.shift();
+  }
+
+  sendOrQueue({
+    type: 'inject_marker',
+    data: { tabId: markerLog.tabId, marker: markerLog.message },
+  });
+
+  // Also send as regular log so it appears in streams
+  sendOrQueue({
+    type: 'log',
+    data: markerLog,
   });
 }
 
@@ -670,7 +765,6 @@ function sendExecuteResponse(
   } as any);
 }
 
-// Handle tab closure
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabs.has(tabId)) {
     sendOrQueue({
@@ -685,9 +779,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
   tabs.delete(tabId);
   tabLogCounts.delete(tabId);
+  tabErrorCounts.delete(tabId);
+  tabLastErrors.delete(tabId);
 });
 
-// Handle tab updates
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!tabs.has(tabId)) {
     return;
@@ -712,7 +807,6 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
   setActiveTabId(activeInfo.tabId);
 });
 
-// WebSocket status updates
 function wireStatusHandler(): void {
   if (!wsClient) return;
   wsClient.onStatusChange((status) => {
@@ -722,10 +816,8 @@ function wireStatusHandler(): void {
   });
 }
 
-// Wire handler after initialization sets wsClient
 wireStatusHandler();
 
-// Toggle enabled state
 async function toggleEnabled(): Promise<boolean> {
   isEnabled = !isEnabled;
   await chrome.storage.local.set({ [STORAGE_KEYS.ENABLED]: isEnabled });

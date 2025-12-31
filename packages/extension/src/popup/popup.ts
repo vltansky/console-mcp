@@ -3,23 +3,24 @@ const statusIndicator = document.getElementById('status-indicator') as HTMLEleme
 const statusText = document.getElementById('status-text') as HTMLElement;
 const statusContainer = document.getElementById('status-container') as HTMLButtonElement;
 const toggleBtn = document.getElementById('toggle-btn') as HTMLButtonElement;
-const toggleText = document.getElementById('toggle-text') as HTMLElement;
 const activeTabsEl = document.getElementById('active-tabs') as HTMLElement;
 const tabsList = document.getElementById('tabs-list') as HTMLElement;
 const sanitizeCheckbox = document.getElementById('sanitize-checkbox') as HTMLInputElement;
-const captureErrorsCheckbox = document.getElementById(
-  'capture-errors-checkbox',
-) as HTMLInputElement;
 const clearLogsBtn = document.getElementById('clear-logs-btn') as HTMLButtonElement;
+const openInCursorBtn = document.getElementById('analyze-btn') as HTMLButtonElement;
+const openInCursorBtnText = document.getElementById('analyze-btn-text') as HTMLElement;
+const markBtn = document.getElementById('mark-btn') as HTMLButtonElement;
+const copyLogsBtn = document.getElementById('copy-logs-btn') as HTMLButtonElement;
+const errorCountEl = document.getElementById('error-count') as HTMLElement;
+const logCountEl = document.getElementById('log-count') as HTMLElement;
+const lastErrorContainer = document.getElementById('last-error-container') as HTMLElement;
+const lastErrorText = document.getElementById('last-error-text') as HTMLElement;
+const allClearContainer = document.getElementById('all-clear-container') as HTMLElement;
+const healthHud = document.getElementById('health-hud') as HTMLElement;
 
 let isReconnecting = false;
 
-// Classes for states
-const toggleEnabledClasses =
-  'bg-accent-primary text-ink-950 hover:bg-accent-primary/90 border-transparent';
-const toggleDisabledClasses =
-  'bg-ink-800 text-ink-400 hover:bg-ink-700 hover:text-ink-200 border-transparent';
-
+// Status indicator classes
 const statusIndicatorClasses = {
   connected: 'bg-accent-primary',
   disconnected: 'bg-accent-error',
@@ -39,6 +40,21 @@ const statusTextClasses = {
 } as const;
 
 let cachedTabs: any[] = [];
+let currentHealthStats: {
+  totalErrors: number;
+  totalLogs: number;
+  activeTabId: number | null;
+  activeTabTitle: string | null;
+  activeTabUrl: string | null;
+  lastError: string | null;
+} = {
+  totalErrors: 0,
+  totalLogs: 0,
+  activeTabId: null,
+  activeTabTitle: null,
+  activeTabUrl: null,
+  lastError: null,
+};
 
 // Update status display
 function updateStatus(
@@ -79,34 +95,59 @@ async function updateStats(): Promise<void> {
     const response = await chrome.runtime.sendMessage({ type: 'get_status' });
 
     const status = response.status || (response.connected ? 'connected' : 'disconnected');
-    const connected = status === 'connected';
     const attempts = response.reconnectAttempts || 0;
 
-    setToggleState(response.enabled, connected);
+    setToggleState(response.enabled);
     updateStatus(status, attempts);
   } catch (error) {
     console.error('Failed to get status:', error);
-    setToggleState(false, false);
+    setToggleState(false);
     updateStatus('disconnected');
   }
 }
 
-let lastKnownConnected = false;
-
-function setToggleState(enabled: boolean, connected = lastKnownConnected): void {
-  lastKnownConnected = connected;
-
-  let label: string;
-  if (!enabled) {
-    label = 'Capture Disabled';
-  } else if (!connected) {
-    label = 'Capture Paused (Offline)';
+function setToggleState(enabled: boolean): void {
+  if (enabled) {
+    toggleBtn.textContent = 'Enabled';
+    toggleBtn.className = 'px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider transition-all bg-accent-primary text-ink-950';
   } else {
-    label = 'Capture Enabled';
+    toggleBtn.textContent = 'Disabled';
+    toggleBtn.className = 'px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider transition-all bg-ink-700 text-ink-400';
   }
+}
 
-  toggleText.textContent = label;
-  toggleBtn.className = `flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all duration-200 ${enabled ? toggleEnabledClasses : toggleDisabledClasses}`;
+async function updateHealthStats(): Promise<void> {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'get_health_stats' });
+    currentHealthStats = response;
+
+    errorCountEl.textContent = String(response.totalErrors || 0);
+    logCountEl.textContent = String(response.totalLogs || 0);
+
+    if (response.totalErrors > 0) {
+      // Show error state
+      errorCountEl.className = 'text-lg font-bold text-red-400';
+      healthHud.className = 'p-3 rounded-xl border transition-all duration-300 border-red-900/50 bg-red-950/20';
+      lastErrorContainer.classList.remove('hidden');
+      allClearContainer.classList.add('hidden');
+      lastErrorText.textContent = response.lastError || 'Unknown error';
+
+      openInCursorBtnText.textContent = `Open in Cursor (${response.totalErrors})`;
+      openInCursorBtn.className = 'flex gap-2 justify-center items-center px-4 py-3 text-sm font-semibold text-white bg-red-500 rounded-xl transition-all hover:bg-red-600';
+    } else {
+      // Show clean state
+      errorCountEl.className = 'text-lg font-bold text-emerald-400';
+      healthHud.className = 'p-3 rounded-xl border transition-all duration-300 border-ink-800 bg-ink-900/50';
+      lastErrorContainer.classList.add('hidden');
+      allClearContainer.classList.remove('hidden');
+
+      // Reset analyze button
+      openInCursorBtnText.textContent = 'Open in Cursor';
+      openInCursorBtn.className = 'flex gap-2 justify-center items-center px-4 py-3 text-sm font-semibold rounded-xl transition-all bg-accent-primary text-ink-950 hover:bg-accent-primary/90';
+    }
+  } catch (error) {
+    console.error('Failed to get health stats:', error);
+  }
 }
 
 function renderTabs(): void {
@@ -115,34 +156,40 @@ function renderTabs(): void {
   }
   if (cachedTabs.length === 0) {
     tabsList.innerHTML = `
-      <div class="flex flex-col gap-2 justify-center items-center py-4 h-full text-ink-500">
-        <span class="text-xs">No active tabs connected</span>
+      <div class="flex flex-col gap-2 justify-center items-center py-3 h-full text-ink-500">
+        <span class="text-[11px]">No active tabs connected</span>
       </div>`;
     return;
   }
 
   tabsList.innerHTML = cachedTabs
-    .map(
-      (tab: any) => `
-        <div class="group flex items-center justify-between p-2.5 rounded-lg border border-transparent hover:bg-ink-800/50 hover:border-ink-800 transition-all cursor-default">
-          <div class="flex-1 pr-3 min-w-0">
-            <div class="flex items-center gap-2 mb-0.5">
-               <div class="text-xs font-medium truncate text-ink-100" title="${escapeHtml(tab.title || 'Untitled')}">${escapeHtml(tab.title || 'Untitled')}</div>
-               ${
-                 tab.isActive
-                   ? '<span class="h-1.5 w-1.5 rounded-full bg-accent-primary" title="Active"></span>'
-                   : ''
-               }
+    .map((tab: any) => {
+      const hasErrors = (tab.errorCount || 0) > 0;
+      const healthDot = hasErrors
+        ? 'bg-red-400'
+        : (tab.logCount || 0) > 0
+          ? 'bg-emerald-400'
+          : 'bg-ink-600';
+
+      return `
+        <div class="flex justify-between items-center p-2 rounded-lg border border-transparent transition-all cursor-default group hover:bg-ink-800/50 hover:border-ink-800">
+          <div class="flex flex-1 gap-2 items-center min-w-0">
+            <span class="h-2 w-2 rounded-full ${healthDot} flex-shrink-0" title="${hasErrors ? 'Has errors' : 'Healthy'}"></span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5">
+                <div class="text-[11px] font-medium truncate text-ink-100" title="${escapeHtml(tab.title || 'Untitled')}">${escapeHtml(tab.title || 'Untitled')}</div>
+                ${tab.isActive ? '<span class="text-[8px] text-accent-primary font-bold uppercase">Active</span>' : ''}
+              </div>
+              <div class="text-[9px] text-ink-500 truncate font-mono" title="${escapeHtml(tab.url || '')}">${escapeHtml(tab.url || '')}</div>
             </div>
-            <div class="text-[10px] text-ink-500 truncate font-mono" title="${escapeHtml(tab.url || '')}">${escapeHtml(tab.url || '')}</div>
           </div>
-          <div class="flex flex-col items-end gap-0.5">
-            <span class="text-xs font-bold text-ink-200">${tab.logCount || 0}</span>
-            <span class="text-[9px] uppercase tracking-wider text-ink-600">Logs</span>
+          <div class="flex flex-shrink-0 gap-2 items-center pl-2">
+            ${hasErrors ? `<span class="text-[10px] font-bold text-red-400">${tab.errorCount}</span>` : ''}
+            <span class="text-[10px] text-ink-500">${tab.logCount || 0}</span>
           </div>
         </div>
-      `,
-    )
+      `;
+    })
     .join('');
 }
 
@@ -196,38 +243,101 @@ statusContainer.addEventListener('click', async () => {
   }
 });
 
-// Load settings
-async function loadSettings(): Promise<void> {
-  const settings = await chrome.storage.local.get([
-    'console_mcp_sanitize',
-    'console_mcp_capture_errors',
-  ]);
+openInCursorBtn.addEventListener('click', () => {
+  const tabTitle = currentHealthStats.activeTabTitle || 'the active tab';
+  const prompt = `Analyze console logs from "${tabTitle}" using console_logs. Summarize activity, flag any errors or warnings, and suggest fixes if needed. If a USER MARKER is present, focus on logs after it.`;
 
-  // Default sanitize to true (nullish coalescing: undefined/null -> true)
+  const encodedPrompt = encodeURIComponent(prompt);
+  const deepLink = `https://cursor.com/link/prompt?text=${encodedPrompt}`;
+
+  window.open(deepLink, '_blank');
+});
+
+markBtn.addEventListener('click', async () => {
+  try {
+    markBtn.disabled = true;
+    const originalHTML = markBtn.innerHTML;
+    markBtn.innerHTML = `
+      <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+      <span>Marking...</span>
+    `;
+
+    await chrome.runtime.sendMessage({ type: 'inject_marker' });
+
+    markBtn.innerHTML = `
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+      <span>Marked!</span>
+    `;
+
+    setTimeout(() => {
+      markBtn.innerHTML = originalHTML;
+      markBtn.disabled = false;
+    }, 1500);
+  } catch (error) {
+    console.error('Failed to inject marker:', error);
+    markBtn.disabled = false;
+  }
+});
+
+copyLogsBtn.addEventListener('click', async () => {
+  try {
+    copyLogsBtn.disabled = true;
+    const originalHTML = copyLogsBtn.innerHTML;
+
+    const response = await chrome.runtime.sendMessage({ type: 'get_recent_logs' });
+    const logs = response.logs || [];
+
+    if (logs.length === 0) {
+      copyLogsBtn.innerHTML = `
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        <span>No logs</span>
+      `;
+      setTimeout(() => {
+        copyLogsBtn.innerHTML = originalHTML;
+        copyLogsBtn.disabled = false;
+      }, 1500);
+      return;
+    }
+
+    // Format logs for clipboard
+    const formattedLogs = logs.map((log: any) => {
+      const ts = new Date(log.timestamp);
+      const time = `${ts.getHours().toString().padStart(2, '0')}:${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
+      return `[${log.level}] ${time} ${log.message}`;
+    }).join('\n');
+
+    await navigator.clipboard.writeText(formattedLogs);
+
+    copyLogsBtn.innerHTML = `
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+      <span>Copied ${logs.length}</span>
+    `;
+
+    setTimeout(() => {
+      copyLogsBtn.innerHTML = originalHTML;
+      copyLogsBtn.disabled = false;
+    }, 1500);
+  } catch (error) {
+    console.error('Failed to copy logs:', error);
+    copyLogsBtn.disabled = false;
+  }
+});
+
+async function loadSettings(): Promise<void> {
+  const settings = await chrome.storage.local.get(['console_mcp_sanitize']);
+
+  // Default sanitize to true
   sanitizeCheckbox.checked = settings.console_mcp_sanitize ?? true;
 
-  // Persist default to storage if not already set
   if (settings.console_mcp_sanitize === undefined) {
     await chrome.storage.local.set({ console_mcp_sanitize: true });
   }
-
-  captureErrorsCheckbox.checked = settings.console_mcp_capture_errors !== false;
 }
 
-// Save settings
 sanitizeCheckbox.addEventListener('change', async () => {
-  await chrome.storage.local.set({
-    console_mcp_sanitize: sanitizeCheckbox.checked,
-  });
+  await chrome.storage.local.set({ console_mcp_sanitize: sanitizeCheckbox.checked });
 });
 
-captureErrorsCheckbox.addEventListener('change', async () => {
-  await chrome.storage.local.set({
-    console_mcp_capture_errors: captureErrorsCheckbox.checked,
-  });
-});
-
-// Clear logs
 if (clearLogsBtn) {
   clearLogsBtn.addEventListener('click', async () => {
     if (!confirm('Clear all logs? This cannot be undone.')) {
@@ -235,32 +345,36 @@ if (clearLogsBtn) {
     }
 
     clearLogsBtn.disabled = true;
-    const originalText = clearLogsBtn.textContent;
+    const originalHTML = clearLogsBtn.innerHTML;
 
     try {
       const response = await chrome.runtime.sendMessage({ type: 'maintenance_clear' });
       if (response.error) {
         console.error('Failed to clear logs:', response.error);
-        clearLogsBtn.textContent = 'Error';
+        clearLogsBtn.innerHTML = `
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          <span>Error</span>
+        `;
         setTimeout(() => {
-          clearLogsBtn.textContent = originalText;
+          clearLogsBtn.innerHTML = originalHTML;
           clearLogsBtn.disabled = false;
         }, 2000);
       } else {
-        clearLogsBtn.textContent = 'Cleared';
+        clearLogsBtn.innerHTML = `
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+          <span>Cleared</span>
+        `;
         setTimeout(() => {
-          clearLogsBtn.textContent = originalText;
+          clearLogsBtn.innerHTML = originalHTML;
           clearLogsBtn.disabled = false;
         }, 1000);
         await updateTabs();
+        await updateHealthStats();
       }
     } catch (error) {
       console.error('Failed to clear logs:', error);
-      clearLogsBtn.textContent = 'Error';
-      setTimeout(() => {
-        clearLogsBtn.textContent = originalText;
-        clearLogsBtn.disabled = false;
-      }, 2000);
+      clearLogsBtn.innerHTML = originalHTML;
+      clearLogsBtn.disabled = false;
     }
   });
 }
@@ -272,15 +386,16 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
-// Initialize
 async function init(): Promise<void> {
   await loadSettings();
   await updateStats();
+  await updateHealthStats();
   await updateTabs();
 
   // Refresh periodically
   setInterval(() => {
     updateStats();
+    updateHealthStats();
     updateTabs();
   }, 2000);
 }

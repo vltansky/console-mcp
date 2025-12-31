@@ -34,7 +34,8 @@ export type ExtensionMessage =
   | { type: 'tab_opened'; data: TabInfo }
   | { type: 'tab_updated'; data: TabInfo }
   | { type: 'tab_closed'; data: { tabId: number } }
-  | { type: 'heartbeat'; data: { timestamp: number } };
+  | { type: 'heartbeat'; data: { timestamp: number } }
+  | { type: 'inject_marker'; data: { tabId: number; marker: string } };
 
 // WebSocket protocol - Server to Extension
 export type ServerMessage =
@@ -173,6 +174,10 @@ export const ExtensionMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('heartbeat'),
     data: z.object({ timestamp: z.number() }),
+  }),
+  z.object({
+    type: z.literal('inject_marker'),
+    data: z.object({ tabId: z.number(), marker: z.string() }),
   }),
 ]);
 
