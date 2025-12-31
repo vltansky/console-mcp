@@ -18,6 +18,65 @@ export interface LogMessage {
   sessionId: string;
 }
 
+// Network performance entry
+export type InitiatorType =
+  | 'fetch'
+  | 'xmlhttprequest'
+  | 'script'
+  | 'link'
+  | 'css'
+  | 'img'
+  | 'image'
+  | 'font'
+  | 'audio'
+  | 'video'
+  | 'beacon'
+  | 'other';
+
+export interface NetworkEntry {
+  id: string;
+  timestamp: number;
+  tabId: number;
+  sessionId: string;
+  url: string; // resource URL
+  pageUrl: string; // page that loaded it
+
+  // Timing (all in ms)
+  duration: number;
+  dnsTime?: number;
+  connectionTime?: number;
+  tlsTime?: number;
+  ttfb?: number; // time to first byte (server response time)
+  downloadTime?: number;
+  stallTime?: number; // queue/stall time
+
+  // Resource info
+  initiatorType: InitiatorType;
+  status?: number; // HTTP status code
+  size?: number; // encoded body size in bytes
+  decodedSize?: number; // decoded body size
+  headerSize?: number;
+  protocol?: string; // h2, http/1.1, etc.
+  cached?: boolean;
+
+  // Flags
+  isError: boolean; // status >= 400 or responseStatus === 0
+  isBlocking?: boolean; // render blocking
+}
+
+// Network filter options
+export interface NetworkFilterOptions {
+  tabId?: number;
+  urlPattern?: string;
+  initiatorTypes?: InitiatorType[];
+  minDuration?: number;
+  maxDuration?: number;
+  isError?: boolean;
+  after?: string;
+  before?: string;
+  sessionId?: string;
+}
+
 // Tab information
 export interface TabInfo {
   id: number;
@@ -31,6 +90,7 @@ export interface TabInfo {
 // WebSocket protocol - Extension to Server
 export type ExtensionMessage =
   | { type: 'log'; data: LogMessage }
+  | { type: 'network_entry'; data: NetworkEntry }
   | { type: 'tab_opened'; data: TabInfo }
   | { type: 'tab_updated'; data: TabInfo }
   | { type: 'tab_closed'; data: { tabId: number } }
@@ -133,6 +193,46 @@ export interface SearchResult {
 // Zod schemas for runtime validation
 export const LogLevelSchema = z.enum(['log', 'info', 'warn', 'error', 'debug']);
 
+export const InitiatorTypeSchema = z.enum([
+  'fetch',
+  'xmlhttprequest',
+  'script',
+  'link',
+  'css',
+  'img',
+  'image',
+  'font',
+  'audio',
+  'video',
+  'beacon',
+  'other',
+]);
+
+export const NetworkEntrySchema = z.object({
+  id: z.string(),
+  timestamp: z.number(),
+  tabId: z.number(),
+  sessionId: z.string(),
+  url: z.string(),
+  pageUrl: z.string(),
+  duration: z.number(),
+  dnsTime: z.number().optional(),
+  connectionTime: z.number().optional(),
+  tlsTime: z.number().optional(),
+  ttfb: z.number().optional(),
+  downloadTime: z.number().optional(),
+  stallTime: z.number().optional(),
+  initiatorType: InitiatorTypeSchema,
+  status: z.number().optional(),
+  size: z.number().optional(),
+  decodedSize: z.number().optional(),
+  headerSize: z.number().optional(),
+  protocol: z.string().optional(),
+  cached: z.boolean().optional(),
+  isError: z.boolean(),
+  isBlocking: z.boolean().optional(),
+});
+
 export const LogMessageSchema = z.object({
   id: z.string(),
   timestamp: z.number(),
@@ -158,6 +258,10 @@ export const ExtensionMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('log'),
     data: LogMessageSchema,
+  }),
+  z.object({
+    type: z.literal('network_entry'),
+    data: NetworkEntrySchema,
   }),
   z.object({
     type: z.literal('tab_opened'),

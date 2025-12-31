@@ -247,7 +247,7 @@ export class WebSocketClient {
 
     try {
       const response = await fetch(`http://localhost:${discoveryPort}/discover`, {
-        method: 'HEAD',
+        method: 'GET',
         signal: AbortSignal.timeout(1000),
       });
 

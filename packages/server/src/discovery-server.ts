@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
-import { CONSOLE_MCP_IDENTIFIER, type FilterOptions } from 'console-bridge-shared';
+import {
+  CONSOLE_MCP_IDENTIFIER,
+  type FilterOptions,
+  type NetworkFilterOptions,
+} from 'console-bridge-shared';
+import type { LogStorage } from './log-storage.js';
+import type { NetworkStorage } from './network-storage.js';
+import type { ConsoleWebSocketServer } from './websocket-server.js';
 
 export interface DiscoveryConfig {
   wsHost: string;
@@ -17,18 +24,26 @@ export interface DiscoveryServer {
 
 export interface MaintenanceHandlers {
   getStats?: () => any;
-  clearLogs?: (args: { tabId?: number; before?: string }) => void;
+  clearLogs?: (args: { tabId?: number; before?: string }) => any;
   exportLogs?: (args: {
     format: 'json' | 'csv' | 'txt';
     filter?: FilterOptions;
     fields?: string[];
     prettyPrint?: boolean;
-  }) => string;
+  }) => any;
+}
+
+// Extended handlers for bridge mode - allows MCP clients to query data
+export interface BridgeHandlers {
+  storage: LogStorage;
+  networkStorage: NetworkStorage;
+  wsServer: ConsoleWebSocketServer;
 }
 
 export function createDiscoveryServer(
   config: DiscoveryConfig,
   maintenanceHandlers?: MaintenanceHandlers,
+  bridgeHandlers?: BridgeHandlers,
 ): DiscoveryServer {
   const DISCOVERY_PORT = config.discoveryPort ?? 3332;
   const identifier = config.identifier ?? CONSOLE_MCP_IDENTIFIER;
@@ -129,6 +144,112 @@ export function createDiscoveryServer(
         res.writeHead(200, { 'Content-Type': contentType });
         res.end(data);
         return;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Bridge API endpoints for MCP clients
+      // ─────────────────────────────────────────────────────────────
+
+      if (bridgeHandlers) {
+        const { storage, networkStorage, wsServer } = bridgeHandlers;
+
+        // GET /api/logs - Query logs with filters
+        if (req.method === 'POST' && url.pathname === '/api/logs') {
+          const body = await readBody(req);
+          const logs = storage.getAll(body.filter);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ logs, count: logs.length }));
+          return;
+        }
+
+        // GET /api/network - Query network entries with filters
+        if (req.method === 'POST' && url.pathname === '/api/network') {
+          const body = await readBody(req);
+          let entries;
+          if (body.action === 'slow') {
+            entries = networkStorage.getSlow(body.minDuration ?? 300, body.filter);
+          } else if (body.action === 'errors') {
+            entries = networkStorage.getErrors(body.filter);
+          } else {
+            entries = networkStorage.getAll(body.filter);
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ entries, count: entries.length }));
+          return;
+        }
+
+        // GET /api/tabs - Get connected tabs
+        if (req.method === 'GET' && url.pathname === '/api/tabs') {
+          const tabs = wsServer.getTabs();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ tabs, connectionCount: wsServer.getConnectionCount() }));
+          return;
+        }
+
+        // POST /api/execute - Execute JS in browser
+        if (req.method === 'POST' && url.pathname === '/api/execute') {
+          const body = await readBody(req);
+          try {
+            const result = await wsServer.executeJS(body.code, body.tabId);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ result }));
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: (error as Error).message }));
+          }
+          return;
+        }
+
+        // POST /api/query-dom - Query DOM elements
+        if (req.method === 'POST' && url.pathname === '/api/query-dom') {
+          const body = await readBody(req);
+          try {
+            const elements = await wsServer.queryDOM(body.selector, body.tabId, body.properties);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ elements }));
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: (error as Error).message }));
+          }
+          return;
+        }
+
+        // POST /api/snapshot - Get DOM snapshot
+        if (req.method === 'POST' && url.pathname === '/api/snapshot') {
+          const body = await readBody(req);
+          try {
+            const snapshot = await wsServer.getDomSnapshot(body.tabId);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ snapshot }));
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: (error as Error).message }));
+          }
+          return;
+        }
+
+        // POST /api/search - Search logs
+        if (req.method === 'POST' && url.pathname === '/api/search') {
+          const body = await readBody(req);
+          // Import search engine dynamically to avoid circular deps
+          const { SearchEngine } = await import('./search-engine.js');
+          const searchEngine = new SearchEngine();
+          const allLogs = storage.getAll(body.filter);
+          const results =
+            body.action === 'keywords'
+              ? searchEngine.keywordSearch(allLogs, body.keywords ?? [], {
+                  logic: body.logic,
+                  exclude: body.exclude,
+                })
+              : searchEngine.regexSearch(allLogs, body.pattern ?? '', {
+                  caseSensitive: body.caseSensitive,
+                  fields: body.fields,
+                  contextLines: body.contextLines,
+                });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ results, count: results.length }));
+          return;
+        }
       }
 
       res.writeHead(404);

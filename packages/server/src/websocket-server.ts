@@ -8,6 +8,7 @@ import type {
 import { BrowserCommandResponseSchema, ExtensionMessageSchema } from 'console-bridge-shared';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { LogStorage } from './log-storage.js';
+import type { NetworkStorage } from './network-storage.js';
 
 export interface WebSocketServerConfig {
   port?: number;
@@ -33,11 +34,17 @@ export class ConsoleWebSocketServer {
   private tabs = new Map<number, TabInfo>();
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private readonly storage: LogStorage;
+  private readonly networkStorage: NetworkStorage;
   private readonly config: Required<WebSocketServerConfig>;
   private pendingCommands = new Map<string, PendingCommand>(); // requestId -> pending command
 
-  constructor(storage: LogStorage, config: WebSocketServerConfig = {}) {
+  constructor(
+    storage: LogStorage,
+    networkStorage: NetworkStorage,
+    config: WebSocketServerConfig = {},
+  ) {
     this.storage = storage;
+    this.networkStorage = networkStorage;
     this.config = {
       port: config.port ?? 9847,
       host: config.host ?? 'localhost',
@@ -131,6 +138,10 @@ export class ConsoleWebSocketServer {
         process.stderr.write(
           `[WebSocket Server] Received log: ${message.data.level} from tab ${message.data.tabId}\n`,
         );
+        break;
+
+      case 'network_entry':
+        this.networkStorage.add(message.data);
         break;
 
       case 'tab_opened':

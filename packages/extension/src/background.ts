@@ -2,6 +2,7 @@ import type {
   DiscoveryPayload,
   ExtensionMessage,
   LogMessage,
+  NetworkEntry,
   TabInfo,
 } from 'console-bridge-shared';
 import { CONSOLE_MCP_IDENTIFIER } from 'console-bridge-shared';
@@ -415,6 +416,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       return true;
 
+    case 'network_entry':
+      if (isEnabled) {
+        void ensureInitialized().then(() => {
+          if (isEnabled) {
+            handleNetworkEntry(message.data, sender);
+          }
+        });
+      }
+      return true;
+
     case 'tab_register':
       void ensureInitialized().then(() => {
         const tabId = sender.tab?.id;
@@ -561,8 +572,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const totalLogs = Array.from(tabLogCounts.values()).reduce((a, b) => a + b, 0);
         const activeTab = activeTabId ? tabs.get(activeTabId) : null;
         const lastError = activeTabId ? tabLastErrors.get(activeTabId) : null;
-        const activeTabLogCount = activeTabId ? (tabLogCounts.get(activeTabId) || 0) : 0;
-        const activeTabErrorCount = activeTabId ? (tabErrorCounts.get(activeTabId) || 0) : 0;
+        const activeTabLogCount = activeTabId ? tabLogCounts.get(activeTabId) || 0 : 0;
+        const activeTabErrorCount = activeTabId ? tabErrorCounts.get(activeTabId) || 0 : 0;
         sendResponse({
           totalErrors,
           totalLogs,
@@ -674,6 +685,28 @@ function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender)
   sendOrQueue({
     type: 'log',
     data: logWithTabId,
+  });
+}
+
+function handleNetworkEntry(entry: NetworkEntry, sender: chrome.runtime.MessageSender): void {
+  const tabId = sender.tab?.id;
+  if (!tabId) {
+    return;
+  }
+
+  // Focus mode: ignore entries from non-active tabs
+  if (focusActiveTabOnly && tabId !== activeTabId) {
+    return;
+  }
+
+  const entryWithTabId: NetworkEntry = {
+    ...entry,
+    tabId,
+  };
+
+  sendOrQueue({
+    type: 'network_entry',
+    data: entryWithTabId,
   });
 }
 

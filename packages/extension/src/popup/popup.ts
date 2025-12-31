@@ -123,10 +123,12 @@ async function updateStats(): Promise<void> {
 function setToggleState(enabled: boolean): void {
   if (enabled) {
     toggleBtn.textContent = 'Enabled';
-    toggleBtn.className = 'px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider transition-all bg-accent-primary text-ink-950';
+    toggleBtn.className =
+      'px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider transition-all bg-accent-primary text-ink-950';
   } else {
     toggleBtn.textContent = 'Disabled';
-    toggleBtn.className = 'px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider transition-all bg-ink-700 text-ink-400';
+    toggleBtn.className =
+      'px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider transition-all bg-ink-700 text-ink-400';
   }
 }
 
@@ -150,23 +152,27 @@ async function updateHealthStats(): Promise<void> {
     if ((response.activeTabErrorCount || 0) > 0) {
       // Show error state
       errorCountEl.className = 'text-lg font-bold text-red-400';
-      healthHud.className = 'p-3 rounded-xl border transition-all duration-300 border-red-900/50 bg-red-950/20';
+      healthHud.className =
+        'p-3 rounded-xl border transition-all duration-300 border-red-900/50 bg-red-950/20';
       lastErrorContainer.classList.remove('hidden');
       allClearContainer.classList.add('hidden');
       lastErrorText.textContent = response.lastError || 'Unknown error';
 
       openInCursorBtnText.textContent = `Open in Cursor (${response.activeTabErrorCount})`;
-      openInCursorBtn.className = 'flex gap-2 justify-center items-center px-4 py-3 text-sm font-semibold text-white bg-red-500 rounded-xl transition-all hover:bg-red-600';
+      openInCursorBtn.className =
+        'flex gap-2 justify-center items-center px-4 py-3 text-sm font-semibold text-white bg-red-500 rounded-xl transition-all hover:bg-red-600';
     } else {
       // Show clean state
       errorCountEl.className = 'text-lg font-bold text-emerald-400';
-      healthHud.className = 'p-3 rounded-xl border transition-all duration-300 border-ink-800 bg-ink-900/50';
+      healthHud.className =
+        'p-3 rounded-xl border transition-all duration-300 border-ink-800 bg-ink-900/50';
       lastErrorContainer.classList.add('hidden');
       allClearContainer.classList.remove('hidden');
 
       // Reset analyze button
       openInCursorBtnText.textContent = 'Open in Cursor';
-      openInCursorBtn.className = 'flex gap-2 justify-center items-center px-4 py-3 text-sm font-semibold rounded-xl transition-all bg-accent-primary text-ink-950 hover:bg-accent-primary/90';
+      openInCursorBtn.className =
+        'flex gap-2 justify-center items-center px-4 py-3 text-sm font-semibold rounded-xl transition-all bg-accent-primary text-ink-950 hover:bg-accent-primary/90';
     }
   } catch (error) {
     console.error('Failed to get health stats:', error);
@@ -279,38 +285,42 @@ openInCursorBtn.addEventListener('click', async () => {
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'get_recent_logs',
-        tabId: currentHealthStats.activeTabId
+        tabId: currentHealthStats.activeTabId,
       });
       const logs = response.logs || [];
 
       if (logs.length > 0) {
-        const formattedLogs = logs.map((log: LogMessage) => {
-          const ts = new Date(log.timestamp);
-          const time = `${ts.getHours().toString().padStart(2, '0')}:${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
+        const formattedLogs = logs
+          .map((log: LogMessage) => {
+            const ts = new Date(log.timestamp);
+            const time = `${ts.getHours().toString().padStart(2, '0')}:${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
 
-          let logLine = `[${log.level.toUpperCase()}] ${time} ${log.message}`;
+            let logLine = `[${log.level.toUpperCase()}] ${time} ${log.message}`;
 
-          if (log.args && log.args.length > 0) {
-            const argsStr = log.args.map((arg: unknown) => {
-              if (arg === null) return 'null';
-              if (arg === undefined) return 'undefined';
-              if (typeof arg === 'string') return arg;
-              if (typeof arg === 'number' || typeof arg === 'boolean') return String(arg);
-              try {
-                return JSON.stringify(arg, null, 2);
-              } catch {
-                return String(arg);
-              }
-            }).join(' ');
-            logLine += ` ${argsStr}`;
-          }
+            if (log.args && log.args.length > 0) {
+              const argsStr = log.args
+                .map((arg: unknown) => {
+                  if (arg === null) return 'null';
+                  if (arg === undefined) return 'undefined';
+                  if (typeof arg === 'string') return arg;
+                  if (typeof arg === 'number' || typeof arg === 'boolean') return String(arg);
+                  try {
+                    return JSON.stringify(arg, null, 2);
+                  } catch {
+                    return String(arg);
+                  }
+                })
+                .join(' ');
+              logLine += ` ${argsStr}`;
+            }
 
-          if (log.stack) {
-            logLine += `\n${log.stack}`;
-          }
+            if (log.stack) {
+              logLine += `\n${log.stack}`;
+            }
 
-          return logLine;
-        }).join('\n');
+            return logLine;
+          })
+          .join('\n');
 
         prompt += `\n\nConsole logs:\n\`\`\`\n${formattedLogs}\n\`\`\`\n\nSummarize activity, flag any errors or warnings, and suggest fixes if needed.`;
       } else {
@@ -376,11 +386,13 @@ copyLogsBtn.addEventListener('click', async () => {
     }
 
     // Format logs for clipboard
-    const formattedLogs = logs.map((log: any) => {
-      const ts = new Date(log.timestamp);
-      const time = `${ts.getHours().toString().padStart(2, '0')}:${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
-      return `[${log.level}] ${time} ${log.message}`;
-    }).join('\n');
+    const formattedLogs = logs
+      .map((log: any) => {
+        const ts = new Date(log.timestamp);
+        const time = `${ts.getHours().toString().padStart(2, '0')}:${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
+        return `[${log.level}] ${time} ${log.message}`;
+      })
+      .join('\n');
 
     await navigator.clipboard.writeText(formattedLogs);
 
@@ -412,18 +424,20 @@ tabsList.addEventListener('click', async (e) => {
 
     const response = await chrome.runtime.sendMessage({
       type: 'get_recent_logs',
-      tabId
+      tabId,
     });
     const logs = response.logs || [];
 
     if (logs.length === 0) {
       btn.innerHTML = `<svg class="w-3 h-3 text-red-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
     } else {
-      const formattedLogs = logs.map((log: LogMessage) => {
-        const ts = new Date(log.timestamp);
-        const time = `${ts.getHours().toString().padStart(2, '0')}:${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
-        return `[${log.level}] ${time} ${log.message}`;
-      }).join('\n');
+      const formattedLogs = logs
+        .map((log: LogMessage) => {
+          const ts = new Date(log.timestamp);
+          const time = `${ts.getHours().toString().padStart(2, '0')}:${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
+          return `[${log.level}] ${time} ${log.message}`;
+        })
+        .join('\n');
 
       await navigator.clipboard.writeText(formattedLogs);
 

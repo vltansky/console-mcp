@@ -2,6 +2,7 @@ import type {
   BrowserCommandResponse,
   DomSnapshotNode,
   LogMessage,
+  NetworkEntry,
   ServerMessage,
 } from 'console-bridge-shared';
 
@@ -15,6 +16,7 @@ interface ExecuteResultPayload {
 }
 
 const CONSOLE_MCP_SOURCE = 'console-mcp';
+const NETWORK_SOURCE = 'console-mcp-network';
 const EXECUTE_SOURCE = 'console-mcp-execute';
 const EXECUTE_TIMEOUT_MS = 30_000;
 const executeCallbacks = new Map<
@@ -35,6 +37,19 @@ window.addEventListener('message', (event) => {
       .sendMessage({
         type: 'console_log',
         data: logData,
+      })
+      .catch(() => {
+        // Silently fail if background script is not available
+      });
+    return;
+  }
+
+  if (data.source === NETWORK_SOURCE && data.kind === 'network_entry' && data.data) {
+    const networkData = data.data as NetworkEntry;
+    chrome.runtime
+      .sendMessage({
+        type: 'network_entry',
+        data: networkData,
       })
       .catch(() => {
         // Silently fail if background script is not available

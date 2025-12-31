@@ -8,9 +8,16 @@ import {
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { FilterOptions, KeywordSearchParams, SearchParams } from 'console-bridge-shared';
+import type {
+  FilterOptions,
+  InitiatorType,
+  KeywordSearchParams,
+  NetworkFilterOptions,
+  SearchParams,
+} from 'console-bridge-shared';
 import { ExportEngine } from './export-engine.js';
 import type { LogStorage } from './log-storage.js';
+import type { NetworkStorage } from './network-storage.js';
 import { type ProjectSkill, loadProjectSkills } from './project-skills.js';
 import { Sanitizer } from './sanitizer.js';
 import { SearchEngine } from './search-engine.js';
@@ -71,17 +78,36 @@ interface SkillsLoadArgs {
   projectPath?: string;
 }
 
+interface NetworkToolArgs {
+  action?: 'list' | 'slow' | 'errors';
+  tabId?: number;
+  urlPattern?: string;
+  initiatorTypes?: InitiatorType[];
+  minDuration?: number;
+  limit?: number;
+  offset?: number;
+  sessionScope?: 'all' | 'current';
+  after?: string;
+  before?: string;
+}
+
 export class McpServer {
   private server: Server;
   private storage: LogStorage;
+  private networkStorage: NetworkStorage;
   private wsServer: ConsoleWebSocketServer;
   private searchEngine: SearchEngine;
   private sanitizer: Sanitizer;
   private exportEngine: ExportEngine;
   private tabSuggester: TabSuggester;
 
-  constructor(storage: LogStorage, wsServer: ConsoleWebSocketServer) {
+  constructor(
+    storage: LogStorage,
+    networkStorage: NetworkStorage,
+    wsServer: ConsoleWebSocketServer,
+  ) {
     this.storage = storage;
+    this.networkStorage = networkStorage;
     this.wsServer = wsServer;
     this.searchEngine = new SearchEngine();
     this.sanitizer = new Sanitizer();
@@ -417,6 +443,81 @@ export class McpServer {
             required: ['slug', 'projectPath'],
           },
         },
+        {
+          name: 'console_network',
+          description:
+            'Query network performance entries captured from browser tabs. Shows timing breakdown (DNS, connection, TTFB, download), resource info, and errors.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              action: {
+                type: 'string',
+                enum: ['list', 'slow', 'errors'],
+                default: 'list',
+                description:
+                  'list: all entries, slow: entries exceeding minDuration threshold, errors: failed requests (4xx/5xx/CORS)',
+              },
+              tabId: {
+                type: 'number',
+                description: 'Filter by specific tab',
+              },
+              urlPattern: {
+                type: 'string',
+                description: 'Regex pattern to filter by resource URL',
+              },
+              initiatorTypes: {
+                type: 'array',
+                items: {
+                  type: 'string',
+                  enum: [
+                    'fetch',
+                    'xmlhttprequest',
+                    'script',
+                    'link',
+                    'css',
+                    'img',
+                    'image',
+                    'font',
+                    'audio',
+                    'video',
+                    'other',
+                  ],
+                },
+                description: 'Filter by resource initiator type (e.g., fetch, script, img)',
+              },
+              minDuration: {
+                type: 'number',
+                default: 300,
+                description: 'Minimum duration in ms (used by slow action, default: 300ms)',
+              },
+              limit: {
+                type: 'number',
+                default: 50,
+                description: 'Maximum entries to return',
+              },
+              offset: {
+                type: 'number',
+                default: 0,
+                description: 'Pagination offset',
+              },
+              after: {
+                type: 'string',
+                description: 'Start time filter (ISO timestamp or relative like "5m", "1h")',
+              },
+              before: {
+                type: 'string',
+                description: 'End time filter',
+              },
+              sessionScope: {
+                type: 'string',
+                enum: ['all', 'current'],
+                default: 'all',
+                description:
+                  'Use "current" to limit to the latest navigation session for the tab (requires tabId)',
+              },
+            },
+          },
+        },
       ],
     }));
 
@@ -612,6 +713,9 @@ Now, help me create a browser skill for this project.`,
 
           case 'console_skills_load':
             return await this.handleSkillsLoadTool(args as SkillsLoadArgs);
+
+          case 'console_network':
+            return await this.handleNetworkTool(args as NetworkToolArgs);
 
           default:
             throw new Error(`Unknown tool: ${name}`);
@@ -906,6 +1010,96 @@ Now, help me create a browser skill for this project.`,
       directory,
       skill: this.serializeSkill(skill, { includeBody: true }),
     });
+  }
+
+  private async handleNetworkTool(args: NetworkToolArgs) {
+    const action = args.action || 'list';
+    const sessionScope = args.sessionScope || 'all';
+
+    // Build filter
+    const filter: NetworkFilterOptions = {
+      tabId: args.tabId,
+      urlPattern: args.urlPattern,
+      initiatorTypes: args.initiatorTypes,
+      after: args.after,
+      before: args.before,
+    };
+
+    // Apply session scope
+    if (sessionScope === 'current') {
+      if (args.tabId === undefined) {
+        throw new Error('sessionScope "current" requires tabId to be specified.');
+      }
+      const latestSession = this.networkStorage.getLatestSession(args.tabId);
+      if (!latestSession) {
+        throw new Error(
+          `No network session information available for tab ${args.tabId}. Load a page to capture network entries first.`,
+        );
+      }
+      filter.sessionId = latestSession.sessionId;
+    }
+
+    let entries;
+    switch (action) {
+      case 'slow':
+        entries = this.networkStorage.getSlow(args.minDuration || 300, filter);
+        break;
+      case 'errors':
+        entries = this.networkStorage.getErrors(filter);
+        break;
+      default:
+        entries = this.networkStorage.getAll(filter);
+    }
+
+    const total = entries.length;
+    const offset = args.offset || 0;
+    const limit = args.limit || 50;
+    entries = entries.slice(offset, offset + limit);
+
+    // Format output
+    const lines: string[] = [];
+    lines.push(
+      `network entries: ${entries.length}/${total}${offset + limit < total ? ' (hasMore)' : ''}`,
+    );
+    lines.push(`action: ${action}${action === 'slow' ? ` (>${args.minDuration || 300}ms)` : ''}`);
+    lines.push('---');
+
+    for (const entry of entries) {
+      const ts = new Date(entry.timestamp);
+      const time = `${ts.getHours().toString().padStart(2, '0')}:${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
+
+      const status = entry.status ? `[${entry.status}]` : '';
+      const error = entry.isError ? ' ERR' : '';
+      const cached = entry.cached ? ' (cached)' : '';
+      const size = entry.size ? ` ${Math.round(entry.size / 1024)}KB` : '';
+
+      lines.push(
+        `${time} ${entry.initiatorType.padEnd(6)} ${entry.duration.toString().padStart(5)}ms${status}${error}${cached}${size}`,
+      );
+      lines.push(`  ${entry.url}`);
+
+      // Show timing breakdown if available
+      const timingParts: string[] = [];
+      if (entry.dnsTime) timingParts.push(`dns:${entry.dnsTime}ms`);
+      if (entry.connectionTime) timingParts.push(`conn:${entry.connectionTime}ms`);
+      if (entry.tlsTime) timingParts.push(`tls:${entry.tlsTime}ms`);
+      if (entry.ttfb) timingParts.push(`ttfb:${entry.ttfb}ms`);
+      if (entry.downloadTime) timingParts.push(`dl:${entry.downloadTime}ms`);
+      if (entry.stallTime && entry.stallTime > 0) timingParts.push(`stall:${entry.stallTime}ms`);
+
+      if (timingParts.length > 0) {
+        lines.push(`  timing: ${timingParts.join(' | ')}`);
+      }
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: lines.join('\n'),
+        },
+      ],
+    };
   }
 
   private resolveSessionIdForScope(
