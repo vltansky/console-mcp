@@ -17,6 +17,60 @@ import { SearchEngine } from './search-engine.js';
 import { type SuggestionContext, TabSuggester } from './tab-suggester.js';
 import type { ConsoleWebSocketServer } from './websocket-server.js';
 
+interface TabsToolArgs {
+  action?: 'list' | 'suggest';
+  urlPatterns?: string[];
+  workingDirectory?: string;
+  ports?: number[];
+  domains?: string[];
+  limit?: number;
+}
+
+interface LogsToolArgs {
+  action?: 'list' | 'get' | 'tail';
+  levels?: string[];
+  tabId?: number;
+  urlPattern?: string;
+  after?: string;
+  before?: string;
+  limit?: number;
+  offset?: number;
+  includeArgs?: boolean;
+  includeStack?: boolean;
+  logId?: string;
+  lines?: number;
+  sessionScope?: 'all' | 'current';
+}
+
+interface SearchToolArgs {
+  action?: 'regex' | 'keywords';
+  pattern?: string;
+  caseSensitive?: boolean;
+  fields?: Array<'message' | 'args' | 'stack'>;
+  contextLines?: number;
+  limit?: number;
+  includeArgs?: boolean;
+  includeStack?: boolean;
+  keywords?: string[];
+  logic?: 'AND' | 'OR';
+  exclude?: string[];
+  sessionScope?: 'all' | 'current';
+  tabId?: number;
+  levels?: string[];
+  urlPattern?: string;
+  after?: string;
+  before?: string;
+}
+
+interface SkillsListArgs {
+  projectPath?: string;
+}
+
+interface SkillsLoadArgs {
+  slug?: string;
+  projectPath?: string;
+}
+
 export class McpServer {
   private server: Server;
   private storage: LogStorage;
@@ -502,7 +556,7 @@ Detailed markdown content explaining:
 | \`console_search\` | Search logs (regex/keywords) |
 | \`console_browser_execute\` | Execute JavaScript in page |
 | \`console_browser_query\` | Query DOM elements |
-| \`console_snapshot\` | Get log statistics |
+| \`console_dom_snapshot\` | Capture DOM snapshot of current page |
 
 **Best practices:**
 - Be specific: Include project-specific details (ports, URLs, feature flags)
@@ -534,13 +588,13 @@ Now, help me create a browser skill for this project.`,
       try {
         switch (name) {
           case 'console_tabs':
-            return await this.handleTabsTool(args as any);
+            return await this.handleTabsTool(args as TabsToolArgs);
 
           case 'console_logs':
-            return await this.handleLogsTool(args as any);
+            return await this.handleLogsTool(args as LogsToolArgs);
 
           case 'console_search':
-            return await this.handleSearchTool(args as any);
+            return await this.handleSearchTool(args as SearchToolArgs);
 
           case 'console_browser_execute':
             return await this.handleExecuteJS(args as { code: string; tabId?: number });
@@ -554,10 +608,10 @@ Now, help me create a browser skill for this project.`,
             return await this.handleDomSnapshotTool(args as { tabId?: number });
 
           case 'console_skills_list':
-            return await this.handleSkillsListTool(args as any);
+            return await this.handleSkillsListTool(args as SkillsListArgs);
 
           case 'console_skills_load':
-            return await this.handleSkillsLoadTool(args as any);
+            return await this.handleSkillsLoadTool(args as SkillsLoadArgs);
 
           default:
             throw new Error(`Unknown tool: ${name}`);
@@ -817,7 +871,10 @@ Now, help me create a browser skill for this project.`,
     }
   }
 
-  private async handleSkillsListTool(args: { projectPath: string }) {
+  private async handleSkillsListTool(args: SkillsListArgs) {
+    if (!args.projectPath) {
+      throw new Error('projectPath is required');
+    }
     const { skills, directory } = await loadProjectSkills({ directory: args.projectPath });
     if (!skills.length) {
       return this.buildSkillsMessage({
@@ -835,7 +892,10 @@ Now, help me create a browser skill for this project.`,
     });
   }
 
-  private async handleSkillsLoadTool(args: { slug: string; projectPath: string }) {
+  private async handleSkillsLoadTool(args: SkillsLoadArgs) {
+    if (!args.slug || !args.projectPath) {
+      throw new Error('slug and projectPath are required');
+    }
     const { skills, directory } = await loadProjectSkills({ directory: args.projectPath });
     const skill = skills.find((candidate) => candidate.id === args.slug);
     if (!skill) {
@@ -1139,49 +1199,6 @@ Now, help me create a browser skill for this project.`,
         url: tab.url,
         logCount: this.storage.getTabCount(tab.id),
       })),
-    };
-  }
-
-  private async handleClearLogs(args: { tabId?: number; before?: string }) {
-    this.clearLogs(args);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: 'Logs cleared successfully',
-        },
-      ],
-    };
-  }
-
-  private async handleExportLogs(args: {
-    format: 'json' | 'csv' | 'txt';
-    filter?: FilterOptions;
-    fields?: string[];
-    prettyPrint?: boolean;
-  }) {
-    const exported = this.exportLogsSnapshot(args);
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: exported,
-        },
-      ],
-    };
-  }
-
-  private async handleGetStats() {
-    const stats = this.getStatsSnapshot();
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(stats, null, 2),
-        },
-      ],
     };
   }
 

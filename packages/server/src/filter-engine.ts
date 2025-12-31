@@ -1,82 +1,55 @@
 import type { FilterOptions, LogMessage } from 'console-bridge-shared';
 
+export interface CompiledFilter {
+  options: FilterOptions;
+  urlRegex?: RegExp;
+  afterTs?: number;
+  beforeTs?: number;
+}
+
 export class FilterEngine {
+  compileFilter(options: FilterOptions): CompiledFilter {
+    return {
+      options,
+      urlRegex: options.urlPattern ? new RegExp(options.urlPattern) : undefined,
+      afterTs: options.after ? this.parseTime(options.after) : undefined,
+      beforeTs: options.before ? this.parseTime(options.before) : undefined,
+    };
+  }
+
   filter(logs: LogMessage[], options: FilterOptions): LogMessage[] {
-    let filtered = logs;
-
-    // Level filter
-    if (options.levels?.length) {
-      filtered = filtered.filter((log) => options.levels?.includes(log.level));
-    }
-
-    // Time filter - after
-    if (options.after) {
-      const after = this.parseTime(options.after);
-      filtered = filtered.filter((log) => log.timestamp >= after);
-    }
-
-    // Time filter - before
-    if (options.before) {
-      const before = this.parseTime(options.before);
-      filtered = filtered.filter((log) => log.timestamp <= before);
-    }
-
-    // URL filter
-    if (options.urlPattern) {
-      const regex = new RegExp(options.urlPattern);
-      filtered = filtered.filter((log) => regex.test(log.url));
-    }
-
-    // Tab filter
-    if (options.tabId !== undefined) {
-      filtered = filtered.filter((log) => log.tabId === options.tabId);
-    }
-
-    // Session filter
-    if (options.sessionId) {
-      filtered = filtered.filter((log) => log.sessionId === options.sessionId);
-    }
-
-    return filtered;
+    const compiled = this.compileFilter(options);
+    return logs.filter((log) => this.matchesCompiledFilter(log, compiled));
   }
 
   matchesFilter(log: LogMessage, filter: FilterOptions): boolean {
-    // Level check
-    if (filter.levels?.length && !filter.levels.includes(log.level)) {
+    return this.matchesCompiledFilter(log, this.compileFilter(filter));
+  }
+
+  matchesCompiledFilter(log: LogMessage, compiled: CompiledFilter): boolean {
+    const { options, urlRegex, afterTs, beforeTs } = compiled;
+
+    if (options.levels?.length && !options.levels.includes(log.level)) {
       return false;
     }
 
-    // Time check - after
-    if (filter.after) {
-      const after = this.parseTime(filter.after);
-      if (log.timestamp < after) {
-        return false;
-      }
-    }
-
-    // Time check - before
-    if (filter.before) {
-      const before = this.parseTime(filter.before);
-      if (log.timestamp > before) {
-        return false;
-      }
-    }
-
-    // URL check
-    if (filter.urlPattern) {
-      const regex = new RegExp(filter.urlPattern);
-      if (!regex.test(log.url)) {
-        return false;
-      }
-    }
-
-    // Tab check
-    if (filter.tabId !== undefined && log.tabId !== filter.tabId) {
+    if (afterTs !== undefined && log.timestamp < afterTs) {
       return false;
     }
 
-    // Session check
-    if (filter.sessionId && log.sessionId !== filter.sessionId) {
+    if (beforeTs !== undefined && log.timestamp > beforeTs) {
+      return false;
+    }
+
+    if (urlRegex && !urlRegex.test(log.url)) {
+      return false;
+    }
+
+    if (options.tabId !== undefined && log.tabId !== options.tabId) {
+      return false;
+    }
+
+    if (options.sessionId && log.sessionId !== options.sessionId) {
       return false;
     }
 

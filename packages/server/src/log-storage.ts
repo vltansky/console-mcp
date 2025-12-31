@@ -130,15 +130,21 @@ export class LogStorage {
 
   private removeFromTabIndex(log: LogMessage): void {
     const tabLogs = this.logsByTab.get(log.tabId);
-    if (tabLogs) {
+    if (!tabLogs) return;
+
+    // Fast path: logs are typically removed from front (oldest first)
+    if (tabLogs[0] === log) {
+      tabLogs.shift();
+    } else {
       const index = tabLogs.indexOf(log);
       if (index !== -1) {
         tabLogs.splice(index, 1);
       }
-      if (tabLogs.length === 0) {
-        this.logsByTab.delete(log.tabId);
-        this.latestSessions.delete(log.tabId);
-      }
+    }
+
+    if (tabLogs.length === 0) {
+      this.logsByTab.delete(log.tabId);
+      this.latestSessions.delete(log.tabId);
     }
   }
 
