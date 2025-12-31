@@ -15,10 +15,6 @@ const markBtn = document.getElementById('mark-btn') as HTMLButtonElement;
 const copyLogsBtn = document.getElementById('copy-logs-btn') as HTMLButtonElement;
 const errorCountEl = document.getElementById('error-count') as HTMLElement;
 const logCountEl = document.getElementById('log-count') as HTMLElement;
-const lastErrorContainer = document.getElementById('last-error-container') as HTMLElement;
-const lastErrorText = document.getElementById('last-error-text') as HTMLElement;
-const allClearContainer = document.getElementById('all-clear-container') as HTMLElement;
-const healthHud = document.getElementById('health-hud') as HTMLElement;
 const logsToggle = document.getElementById('logs-toggle') as HTMLButtonElement;
 const logsWrapper = document.getElementById('logs-wrapper') as HTMLElement;
 const logsContainer = document.getElementById('logs-container') as HTMLElement;
@@ -50,21 +46,13 @@ const statusTextClasses = {
 
 let cachedTabs: TabInfo[] = [];
 let currentHealthStats: {
-  totalErrors: number;
-  totalLogs: number;
   activeTabId: number | null;
   activeTabTitle: string | null;
-  activeTabUrl: string | null;
-  lastError: string | null;
   activeTabLogCount?: number;
   activeTabErrorCount?: number;
 } = {
-  totalErrors: 0,
-  totalLogs: 0,
   activeTabId: null,
   activeTabTitle: null,
-  activeTabUrl: null,
-  lastError: null,
   activeTabLogCount: 0,
   activeTabErrorCount: 0,
 };
@@ -149,31 +137,13 @@ async function updateHealthStats(): Promise<void> {
       updateLogs();
     }
 
-    if ((response.activeTabErrorCount || 0) > 0) {
-      // Show error state
-      errorCountEl.className = 'text-lg font-bold text-red-400';
-      healthHud.className =
-        'p-3 rounded-xl border transition-all duration-300 border-red-900/50 bg-red-950/20';
-      lastErrorContainer.classList.remove('hidden');
-      allClearContainer.classList.add('hidden');
-      lastErrorText.textContent = response.lastError || 'Unknown error';
+    // Update error count color based on presence
+    const hasErrors = (response.activeTabErrorCount || 0) > 0;
+    errorCountEl.className = hasErrors ? 'text-lg font-bold text-red-400' : 'text-lg font-bold text-emerald-400';
 
-      openInCursorBtnText.textContent = `Open in Cursor (${response.activeTabErrorCount})`;
-      openInCursorBtn.className =
-        'flex gap-2 justify-center items-center px-4 py-3 text-sm font-semibold text-white bg-red-500 rounded-xl transition-all hover:bg-red-600';
-    } else {
-      // Show clean state
-      errorCountEl.className = 'text-lg font-bold text-emerald-400';
-      healthHud.className =
-        'p-3 rounded-xl border transition-all duration-300 border-ink-800 bg-ink-900/50';
-      lastErrorContainer.classList.add('hidden');
-      allClearContainer.classList.remove('hidden');
-
-      // Reset analyze button
-      openInCursorBtnText.textContent = 'Open in Cursor';
-      openInCursorBtn.className =
-        'flex gap-2 justify-center items-center px-4 py-3 text-sm font-semibold rounded-xl transition-all bg-accent-primary text-ink-950 hover:bg-accent-primary/90';
-    }
+    // Update button text with count if logs exist
+    const logCount = response.activeTabLogCount || 0;
+    openInCursorBtnText.textContent = logCount > 0 ? `Open in Cursor (${logCount})` : 'Open in Cursor';
   } catch (error) {
     console.error('Failed to get health stats:', error);
   }
