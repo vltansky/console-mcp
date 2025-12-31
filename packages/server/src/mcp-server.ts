@@ -142,12 +142,6 @@ export class McpServer {
                 default: 0,
                 description: 'Pagination offset for list action',
               },
-              sanitize: {
-                type: 'boolean',
-                default: false,
-                description:
-                  'Deprecated: Sanitization is controlled by the extension. This parameter has no effect.',
-              },
               includeArgs: {
                 type: 'boolean',
                 default: false,
@@ -171,11 +165,6 @@ export class McpServer {
                 description: 'Log ID when action = get',
               },
               // tail arguments
-              follow: {
-                type: 'boolean',
-                default: true,
-                description: 'Follow new logs when action = tail',
-              },
               lines: {
                 type: 'number',
                 default: 10,
@@ -721,7 +710,6 @@ Now, help me create a browser skill for this project.`,
       });
       const resolvedFilter = this.applySessionScopeToFilter(baseFilter, sessionScope);
       return this.handleTailLogs({
-        follow: args.follow,
         filter: resolvedFilter,
         lines: args.lines,
       });
@@ -1071,7 +1059,6 @@ Now, help me create a browser skill for this project.`,
   }
 
   private async handleTailLogs(args: {
-    follow?: boolean;
     filter?: FilterOptions;
     lines?: number;
   }) {
