@@ -21,6 +21,7 @@ const allClearContainer = document.getElementById('all-clear-container') as HTML
 const healthHud = document.getElementById('health-hud') as HTMLElement;
 
 let isReconnecting = false;
+let currentStatus: 'connected' | 'disconnected' | 'reconnecting' = 'disconnected';
 
 // Status indicator classes
 const statusIndicatorClasses = {
@@ -67,6 +68,7 @@ function updateStatus(
   status: 'connected' | 'disconnected' | 'reconnecting',
   reconnectAttempts = 0,
 ): void {
+  currentStatus = status;
   statusIndicator.className = `h-2 w-2 rounded-full transition-all ${statusIndicatorClasses[status]}`;
 
   const isOffline = status !== 'connected';
@@ -252,9 +254,59 @@ statusContainer.addEventListener('click', async () => {
   }
 });
 
-openInCursorBtn.addEventListener('click', () => {
+openInCursorBtn.addEventListener('click', async () => {
   const tabTitle = currentHealthStats.activeTabTitle || 'the active tab';
-  const prompt = `Analyze console logs from "${tabTitle}" using console_logs. Summarize activity, flag any errors or warnings, and suggest fixes if needed. If a USER MARKER is present, focus on logs after it.`;
+
+  let prompt = `Analyze console logs from "${tabTitle}"`;
+
+  // If MCP is offline, include logs directly in the prompt
+  if (currentStatus !== 'connected') {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'get_recent_logs',
+        tabId: currentHealthStats.activeTabId
+      });
+      const logs = response.logs || [];
+
+      if (logs.length > 0) {
+        const formattedLogs = logs.map((log: LogMessage) => {
+          const ts = new Date(log.timestamp);
+          const time = `${ts.getHours().toString().padStart(2, '0')}:${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
+
+          let logLine = `[${log.level.toUpperCase()}] ${time} ${log.message}`;
+
+          if (log.args && log.args.length > 0) {
+            const argsStr = log.args.map((arg: unknown) => {
+              if (arg === null) return 'null';
+              if (arg === undefined) return 'undefined';
+              if (typeof arg === 'string') return arg;
+              if (typeof arg === 'number' || typeof arg === 'boolean') return String(arg);
+              try {
+                return JSON.stringify(arg, null, 2);
+              } catch {
+                return String(arg);
+              }
+            }).join(' ');
+            logLine += ` ${argsStr}`;
+          }
+
+          if (log.stack) {
+            logLine += `\n${log.stack}`;
+          }
+
+          return logLine;
+        }).join('\n');
+
+        prompt += `\n\nConsole logs:\n\`\`\`\n${formattedLogs}\n\`\`\`\n\nSummarize activity, flag any errors or warnings, and suggest fixes if needed.`;
+      } else {
+        prompt += '. No logs available.';
+      }
+    } catch {
+      prompt += '. Failed to retrieve logs.';
+    }
+  } else {
+    prompt += ` using console_logs. Summarize activity, flag any errors or warnings, and suggest fixes if needed. If a USER MARKER is present, focus on logs after it.`;
+  }
 
   const encodedPrompt = encodeURIComponent(prompt);
   const deepLink = `https://cursor.com/link/prompt?text=${encodedPrompt}`;
