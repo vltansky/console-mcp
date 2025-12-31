@@ -8,7 +8,8 @@
     "dev:css": "tailwindcss -i ./src/popup/tailwind.css -o ./public/popup.css --watch",
     "build": "npm run build:css && vite build",
     "dev": "vite build --watch",
-    "package": "npm run build && node scripts/package.js"
+    "package": "npm run build && node scripts/package.js",
+    "release": "node scripts/release.js"
   },
   "dependencies": {
     "console-bridge-shared": "*"
