@@ -9,6 +9,7 @@ export default defineConfig({
       input: {
         background: resolve(__dirname, 'src/background.ts'),
         'content-script': resolve(__dirname, 'src/content-script.ts'),
+        'console-interceptor-main': resolve(__dirname, 'src/console-interceptor-main.ts'),
         popup: resolve(__dirname, 'src/popup/popup.ts'),
       },
       output: {

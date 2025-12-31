@@ -4,7 +4,6 @@ import type {
   LogMessage,
   ServerMessage,
 } from 'console-bridge-shared';
-import { interceptConsole } from './lib/console-interceptor';
 
 interface ExecuteResultPayload {
   result?: unknown;
@@ -15,6 +14,7 @@ interface ExecuteResultPayload {
   };
 }
 
+const CONSOLE_MCP_SOURCE = 'console-mcp';
 const EXECUTE_SOURCE = 'console-mcp-execute';
 const EXECUTE_TIMEOUT_MS = 30_000;
 const executeCallbacks = new Map<
@@ -22,28 +22,33 @@ const executeCallbacks = new Map<
   { resolve: (payload: ExecuteResultPayload) => void; timer: number }
 >();
 
+// Listen for messages from the main world interceptor (console-interceptor-main.js)
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
-  const data = event.data as {
-    source?: string;
-    kind?: string;
-    requestId?: string;
-    payload?: ExecuteResultPayload;
-  };
-  if (
-    !data ||
-    data.source !== EXECUTE_SOURCE ||
-    data.kind !== 'execute_js_result' ||
-    !data.requestId
-  ) {
+
+  const data = event.data;
+  if (!data) return;
+
+  if (data.source === CONSOLE_MCP_SOURCE && data.kind === 'console_log' && data.data) {
+    const logData = data.data as LogMessage;
+    chrome.runtime
+      .sendMessage({
+        type: 'console_log',
+        data: logData,
+      })
+      .catch(() => {
+        // Silently fail if background script is not available
+      });
     return;
   }
 
-  const entry = executeCallbacks.get(data.requestId);
-  if (entry) {
-    clearTimeout(entry.timer);
-    executeCallbacks.delete(data.requestId);
-    entry.resolve(data.payload || {});
+  if (data.source === EXECUTE_SOURCE && data.kind === 'execute_js_result' && data.requestId) {
+    const entry = executeCallbacks.get(data.requestId);
+    if (entry) {
+      clearTimeout(entry.timer);
+      executeCallbacks.delete(data.requestId);
+      entry.resolve(data.payload || {});
+    }
   }
 });
 
@@ -84,20 +89,20 @@ function executeInPage(code: string, requestId: string): Promise<ExecuteResultPa
   });
 }
 
-interceptConsole((logData: LogMessage) => {
-  chrome.runtime
-    .sendMessage({
-      type: 'console_log',
-      data: logData,
-    })
-    .catch((error) => {
-      // Silently fail if background script is not available
-      // This can happen during extension reload
-      if (process.env.NODE_ENV === 'development') {
-        console.debug('[Content Script] Failed to send log:', error);
-      }
-    });
-});
+// Register this tab with the background script immediately
+// This ensures tabs appear in the list even before any logs are captured
+chrome.runtime
+  .sendMessage({
+    type: 'tab_register',
+    data: {
+      url: window.location.href,
+      title: document.title,
+      sessionId: crypto.randomUUID(),
+    },
+  })
+  .catch(() => {
+    // Silently fail if background script is not available
+  });
 
 chrome.runtime.onMessage.addListener((message: ServerMessage, _sender, sendResponse) => {
   handleCommand(message)
@@ -224,7 +229,7 @@ async function handleCommand(message: ServerMessage): Promise<any> {
           type: 'dom_snapshot_response',
           data: {
             requestId: message.data.requestId,
-            snapshot,
+            snapshot: snapshot ?? undefined,
           },
         };
         return response;

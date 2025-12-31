@@ -21,6 +21,7 @@ let initializationPromise: Promise<void> | null = null;
 const pendingMessages: ExtensionMessage[] = [];
 
 const recentLogs: LogMessage[] = [];
+const tabRecentLogs = new Map<number, LogMessage[]>();
 const RECENT_LOGS_MAX = 50;
 
 const tabs = new Map<number, TabInfo>();
@@ -414,6 +415,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       return true;
 
+    case 'tab_register':
+      void ensureInitialized().then(() => {
+        const tabId = sender.tab?.id;
+        if (!tabId) {
+          sendResponse({ success: false });
+          return;
+        }
+
+        const existingTab = tabs.get(tabId);
+        if (!existingTab) {
+          createTabEntry(tabId, sender.tab, message.data?.sessionId || crypto.randomUUID());
+        } else {
+          const updates: Partial<TabInfo> = {};
+          if (sender.tab?.url && sender.tab.url !== existingTab.url) {
+            updates.url = sender.tab.url;
+          }
+          if (sender.tab?.title && sender.tab.title !== existingTab.title) {
+            updates.title = sender.tab.title;
+          }
+          if (message.data?.sessionId && existingTab.sessionId !== message.data.sessionId) {
+            updates.sessionId = message.data.sessionId;
+            updates.lastNavigationAt = Date.now();
+          }
+          if (Object.keys(updates).length > 0) {
+            updateTrackedTab(tabId, updates);
+          }
+        }
+
+        if (sender.tab?.active) {
+          setActiveTabId(tabId);
+        }
+
+        sendResponse({ success: true, tabId });
+      });
+      return true;
+
     case 'get_tab_id':
       sendResponse({ tabId: sender.tab?.id || -1 });
       return true;
@@ -465,6 +502,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           tabErrorCounts.clear();
           tabLastErrors.clear();
           recentLogs.length = 0;
+          tabRecentLogs.clear();
           updateBadge();
           sendResponse({ success: true });
         } catch (error) {
@@ -512,6 +550,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const totalLogs = Array.from(tabLogCounts.values()).reduce((a, b) => a + b, 0);
         const activeTab = activeTabId ? tabs.get(activeTabId) : null;
         const lastError = activeTabId ? tabLastErrors.get(activeTabId) : null;
+        const activeTabLogCount = activeTabId ? (tabLogCounts.get(activeTabId) || 0) : 0;
+        const activeTabErrorCount = activeTabId ? (tabErrorCounts.get(activeTabId) || 0) : 0;
         sendResponse({
           totalErrors,
           totalLogs,
@@ -519,13 +559,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           activeTabTitle: activeTab?.title || null,
           activeTabUrl: activeTab?.url || null,
           lastError,
+          activeTabLogCount,
+          activeTabErrorCount,
         });
       });
       return true;
 
     case 'get_recent_logs':
       void ensureInitialized().then(() => {
-        sendResponse({ logs: recentLogs });
+        const targetTabId = message.tabId;
+        if (targetTabId) {
+          sendResponse({ logs: tabRecentLogs.get(targetTabId) || [] });
+        } else {
+          sendResponse({ logs: recentLogs });
+        }
       });
       return true;
 
@@ -606,6 +653,13 @@ function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender)
     recentLogs.shift();
   }
 
+  const tabLogs = tabRecentLogs.get(tabId) || [];
+  tabLogs.push(logWithTabId);
+  if (tabLogs.length > RECENT_LOGS_MAX) {
+    tabLogs.shift();
+  }
+  tabRecentLogs.set(tabId, tabLogs);
+
   sendOrQueue({
     type: 'log',
     data: logWithTabId,
@@ -628,6 +682,15 @@ function injectMarker(): void {
   recentLogs.push(markerLog);
   if (recentLogs.length > RECENT_LOGS_MAX) {
     recentLogs.shift();
+  }
+
+  if (activeTabId && activeTabId !== -1) {
+    const tabLogs = tabRecentLogs.get(activeTabId) || [];
+    tabLogs.push(markerLog);
+    if (tabLogs.length > RECENT_LOGS_MAX) {
+      tabLogs.shift();
+    }
+    tabRecentLogs.set(activeTabId, tabLogs);
   }
 
   sendOrQueue({
@@ -781,6 +844,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   tabLogCounts.delete(tabId);
   tabErrorCounts.delete(tabId);
   tabLastErrors.delete(tabId);
+  tabRecentLogs.delete(tabId);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {

@@ -1,3 +1,5 @@
+import type { LogMessage, TabInfo } from 'console-bridge-shared';
+
 // DOM elements
 const statusIndicator = document.getElementById('status-indicator') as HTMLElement;
 const statusText = document.getElementById('status-text') as HTMLElement;
@@ -39,7 +41,7 @@ const statusTextClasses = {
   reconnecting: 'text-accent-warning',
 } as const;
 
-let cachedTabs: any[] = [];
+let cachedTabs: TabInfo[] = [];
 let currentHealthStats: {
   totalErrors: number;
   totalLogs: number;
@@ -47,6 +49,8 @@ let currentHealthStats: {
   activeTabTitle: string | null;
   activeTabUrl: string | null;
   lastError: string | null;
+  activeTabLogCount?: number;
+  activeTabErrorCount?: number;
 } = {
   totalErrors: 0,
   totalLogs: 0,
@@ -54,6 +58,8 @@ let currentHealthStats: {
   activeTabTitle: null,
   activeTabUrl: null,
   lastError: null,
+  activeTabLogCount: 0,
+  activeTabErrorCount: 0,
 };
 
 // Update status display
@@ -121,10 +127,10 @@ async function updateHealthStats(): Promise<void> {
     const response = await chrome.runtime.sendMessage({ type: 'get_health_stats' });
     currentHealthStats = response;
 
-    errorCountEl.textContent = String(response.totalErrors || 0);
-    logCountEl.textContent = String(response.totalLogs || 0);
+    errorCountEl.textContent = String(response.activeTabErrorCount || 0);
+    logCountEl.textContent = String(response.activeTabLogCount || 0);
 
-    if (response.totalErrors > 0) {
+    if ((response.activeTabErrorCount || 0) > 0) {
       // Show error state
       errorCountEl.className = 'text-lg font-bold text-red-400';
       healthHud.className = 'p-3 rounded-xl border transition-all duration-300 border-red-900/50 bg-red-950/20';
@@ -132,7 +138,7 @@ async function updateHealthStats(): Promise<void> {
       allClearContainer.classList.add('hidden');
       lastErrorText.textContent = response.lastError || 'Unknown error';
 
-      openInCursorBtnText.textContent = `Open in Cursor (${response.totalErrors})`;
+      openInCursorBtnText.textContent = `Open in Cursor (${response.activeTabErrorCount})`;
       openInCursorBtn.className = 'flex gap-2 justify-center items-center px-4 py-3 text-sm font-semibold text-white bg-red-500 rounded-xl transition-all hover:bg-red-600';
     } else {
       // Show clean state
@@ -184,6 +190,9 @@ function renderTabs(): void {
             </div>
           </div>
           <div class="flex flex-shrink-0 gap-2 items-center pl-2">
+            <button class="hidden justify-center items-center w-5 h-5 rounded transition-colors copy-tab-logs-btn group-hover:flex hover:bg-ink-700 text-ink-400 hover:text-ink-200" data-tab-id="${tab.id}" title="Copy last 50 logs">
+              <svg class="w-3 h-3 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path></svg>
+            </button>
             ${hasErrors ? `<span class="text-[10px] font-bold text-red-400">${tab.errorCount}</span>` : ''}
             <span class="text-[10px] text-ink-500">${tab.logCount || 0}</span>
           </div>
@@ -320,6 +329,47 @@ copyLogsBtn.addEventListener('click', async () => {
   } catch (error) {
     console.error('Failed to copy logs:', error);
     copyLogsBtn.disabled = false;
+  }
+});
+
+tabsList.addEventListener('click', async (e) => {
+  const btn = (e.target as HTMLElement).closest('.copy-tab-logs-btn') as HTMLButtonElement;
+  if (!btn) return;
+
+  const tabId = parseInt(btn.dataset.tabId || '0', 10);
+  if (!tabId) return;
+
+  try {
+    btn.disabled = true;
+    const originalHTML = btn.innerHTML;
+
+    const response = await chrome.runtime.sendMessage({
+      type: 'get_recent_logs',
+      tabId
+    });
+    const logs = response.logs || [];
+
+    if (logs.length === 0) {
+      btn.innerHTML = `<svg class="w-3 h-3 text-red-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+    } else {
+      const formattedLogs = logs.map((log: LogMessage) => {
+        const ts = new Date(log.timestamp);
+        const time = `${ts.getHours().toString().padStart(2, '0')}:${ts.getMinutes().toString().padStart(2, '0')}:${ts.getSeconds().toString().padStart(2, '0')}`;
+        return `[${log.level}] ${time} ${log.message}`;
+      }).join('\n');
+
+      await navigator.clipboard.writeText(formattedLogs);
+
+      btn.innerHTML = `<svg class="w-3 h-3 text-emerald-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+    }
+
+    setTimeout(() => {
+      btn.innerHTML = originalHTML;
+      btn.disabled = false;
+    }, 1500);
+  } catch (error) {
+    console.error('Failed to copy logs:', error);
+    btn.disabled = false;
   }
 });
 
