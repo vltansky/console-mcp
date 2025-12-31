@@ -6,7 +6,7 @@
 
 **Give your AI assistant access to browser console logs**
 
-Capture logs from all tabs, search errors, and debug in real-time.
+Capture logs from all tabs, search errors, and equip your AI with project-specific debugging skills.
 
 [Quick Start](#quick-start) · [Features](#features) · [Tools](#mcp-tools) · [Config](#configuration)
 
@@ -24,6 +24,7 @@ Unlike browser automation tools that require you to connect each tab, **console-
 | **Tab coverage** | All tabs simultaneously | Single tab at a time |
 | **Log storage** | 10K logs with TTL | None |
 | **Search** | Regex, keywords, time range | Not supported |
+| **Skills** | Custom debugging skills (.md) | Generic page access |
 | **Use case** | Debugging | UI automation |
 
 **Best for:** "My app is throwing errors, help me debug" workflows.
