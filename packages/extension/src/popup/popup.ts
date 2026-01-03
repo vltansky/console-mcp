@@ -143,7 +143,7 @@ async function updateHealthStats(): Promise<void> {
 
     // Update button text with count if logs exist
     const logCount = response.activeTabLogCount || 0;
-    openInCursorBtnText.textContent = logCount > 0 ? `Open in Cursor (${logCount})` : 'Open in Cursor';
+    openInCursorBtnText.textContent = 'Open in Cursor';
   } catch (error) {
     console.error('Failed to get health stats:', error);
   }

@@ -29,6 +29,8 @@ const tabs = new Map<number, TabInfo>();
 const tabLogCounts = new Map<number, number>();
 const tabErrorCounts = new Map<number, number>();
 const tabLastErrors = new Map<number, string>();
+// Track whether we've received logs for a tab (to distinguish init from navigation)
+const tabHasLogs = new Map<number, boolean>();
 
 const STORAGE_KEYS = {
   ENABLED: 'console_mcp_enabled',
@@ -523,6 +525,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           tabLogCounts.clear();
           tabErrorCounts.clear();
           tabLastErrors.clear();
+          tabHasLogs.clear();
           recentLogs.length = 0;
           tabRecentLogs.clear();
           updateBadge();
@@ -624,6 +627,7 @@ function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender)
   }
 
   const existingTab = tabs.get(tabId);
+  const hadLogs = tabHasLogs.get(tabId) ?? false;
 
   if (!existingTab) {
     createTabEntry(tabId, sender.tab, log.sessionId);
@@ -638,6 +642,14 @@ function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender)
       updates.title = sender.tab.title;
     }
 
+    // Detect navigation: sessionId changed AND we've seen logs before
+    const isNavigation = existingTab.sessionId !== log.sessionId && hadLogs;
+
+    if (isNavigation) {
+      // Inject navigation marker BEFORE the new log
+      injectNavigationMarker(tabId, existingTab.url, sender.tab?.url || log.url, log.sessionId);
+    }
+
     if (existingTab.sessionId !== log.sessionId) {
       updates.sessionId = log.sessionId;
       updates.lastNavigationAt = Date.now();
@@ -645,6 +657,9 @@ function handleConsoleLog(log: LogMessage, sender: chrome.runtime.MessageSender)
 
     updateTrackedTab(tabId, updates);
   }
+
+  // Mark that this tab has received logs
+  tabHasLogs.set(tabId, true);
 
   if (sender.tab?.active) {
     setActiveTabId(tabId);
@@ -743,6 +758,62 @@ function injectMarker(): void {
   });
 
   // Also send as regular log so it appears in streams
+  sendOrQueue({
+    type: 'log',
+    data: markerLog,
+  });
+}
+
+function injectNavigationMarker(
+  tabId: number,
+  previousUrl: string,
+  newUrl: string,
+  newSessionId: string,
+): void {
+  const now = Date.now();
+
+  // Determine navigation type
+  let navType = 'PAGE NAVIGATION';
+  try {
+    const prevParsed = new URL(previousUrl);
+    const newParsed = new URL(newUrl);
+    if (prevParsed.origin === newParsed.origin && prevParsed.pathname === newParsed.pathname) {
+      navType = 'PAGE REFRESH';
+    }
+  } catch {
+    // URL parsing failed, use generic type
+  }
+
+  const markerLog: LogMessage = {
+    id: `nav-${now}`,
+    timestamp: now,
+    level: 'info',
+    message: `══════════════ ${navType} ══════════════`,
+    args: [
+      {
+        previousUrl,
+        newUrl,
+        navigationType: navType.toLowerCase().replace(' ', '_'),
+      },
+    ],
+    tabId,
+    url: newUrl,
+    sessionId: newSessionId,
+  };
+
+  recentLogs.push(markerLog);
+  if (recentLogs.length > RECENT_LOGS_MAX) {
+    recentLogs.shift();
+  }
+
+  const tabLogs = tabRecentLogs.get(tabId) || [];
+  tabLogs.push(markerLog);
+  if (tabLogs.length > RECENT_LOGS_MAX) {
+    tabLogs.shift();
+  }
+  tabRecentLogs.set(tabId, tabLogs);
+
+  // Send to server
   sendOrQueue({
     type: 'log',
     data: markerLog,
@@ -889,6 +960,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   tabErrorCounts.delete(tabId);
   tabLastErrors.delete(tabId);
   tabRecentLogs.delete(tabId);
+  tabHasLogs.delete(tabId);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
