@@ -1,6 +1,6 @@
 {
   "name": "console-bridge-monorepo",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "description": "MCP server for capturing and querying browser console logs",

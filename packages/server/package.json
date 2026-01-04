@@ -1,6 +1,6 @@
 {
   "name": "console-bridge-mcp",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "description": "MCP server for browser console logs",
   "bin": {
